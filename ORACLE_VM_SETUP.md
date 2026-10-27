@@ -21,15 +21,22 @@ MoneyGame    NithConnect    IPO    bin    lib
 From your local development machine:
 
 ```bash
-# Using rsync to transfer the project cleanly
-rsync -avz --exclude 'node_modules' --exclude '.dart_tool' --exclude 'build' --exclude 'dist' /home/gulshan/Projects/IPO/ ubuntu@132.226.186.196:~/IPO/
+git push origin main
 ```
 
-Or push to GitHub and clone:
+On your Oracle VM (`132.226.186.196`):
 
 ```bash
 ssh ubuntu@132.226.186.196
-git clone <YOUR_IPO_REPO_URL> IPO
+git clone git@github.com:gkt-repo/IPO-Management.git IPO
+cd ~/IPO
+```
+
+To pull subsequent updates on your Oracle VM:
+```bash
+cd ~/IPO
+git pull origin main
+./deploy.sh
 ```
 
 ---
