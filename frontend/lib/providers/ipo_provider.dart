@@ -1,0 +1,119 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/api/api_client.dart';
+import '../core/constants/api_constants.dart';
+import '../core/models/ipo_model.dart';
+import '../core/models/dashboard_summary_model.dart';
+
+class IpoListState {
+  final bool isLoading;
+  final List<IpoItemModel> ipos;
+  final DashboardSummaryModel? summary;
+  final String? errorMessage;
+  final String selectedIssueType; // 'ALL', 'MAINBOARD', 'SME'
+  final String selectedStatusFilter; // 'ALL', 'ALLOTTED', 'NOT_ALLOTTED', 'PENDING'
+  final String searchQuery;
+
+  IpoListState({
+    required this.isLoading,
+    required this.ipos,
+    this.summary,
+    this.errorMessage,
+    this.selectedIssueType = 'ALL',
+    this.selectedStatusFilter = 'ALL',
+    this.searchQuery = '',
+  });
+
+  factory IpoListState.initial() => IpoListState(
+        isLoading: false,
+        ipos: [],
+      );
+
+  List<IpoItemModel> get filteredIpos {
+    return ipos.where((ipo) {
+      if (selectedIssueType != 'ALL' && ipo.issueType != selectedIssueType) {
+        return false;
+      }
+      if (selectedStatusFilter != 'ALL') {
+        if (selectedStatusFilter == 'ALLOTTED' && ipo.status != AllotmentStatusEnum.allotted) return false;
+        if (selectedStatusFilter == 'NOT_ALLOTTED' && ipo.status != AllotmentStatusEnum.notAllotted) return false;
+        if (selectedStatusFilter == 'PENDING' && ipo.status != AllotmentStatusEnum.pending) return false;
+        if (selectedStatusFilter == 'LOOKUP_FAILED' && ipo.status != AllotmentStatusEnum.lookupFailed) return false;
+      }
+      if (searchQuery.isNotEmpty) {
+        final q = searchQuery.toLowerCase();
+        if (!ipo.name.toLowerCase().contains(q) && !ipo.registrar.toLowerCase().contains(q)) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+  }
+
+  IpoListState copyWith({
+    bool? isLoading,
+    List<IpoItemModel>? ipos,
+    DashboardSummaryModel? summary,
+    String? errorMessage,
+    String? selectedIssueType,
+    String? selectedStatusFilter,
+    String? searchQuery,
+  }) {
+    return IpoListState(
+      isLoading: isLoading ?? this.isLoading,
+      ipos: ipos ?? this.ipos,
+      summary: summary ?? this.summary,
+      errorMessage: errorMessage,
+      selectedIssueType: selectedIssueType ?? this.selectedIssueType,
+      selectedStatusFilter: selectedStatusFilter ?? this.selectedStatusFilter,
+      searchQuery: searchQuery ?? this.searchQuery,
+    );
+  }
+}
+
+class IpoListNotifier extends Notifier<IpoListState> {
+  final ApiClient _apiClient = ApiClient();
+
+  @override
+  IpoListState build() {
+    return IpoListState.initial();
+  }
+
+  Future<void> fetchIposAndSummary({bool silent = false}) async {
+    if (!silent) {
+      state = state.copyWith(isLoading: true, errorMessage: null);
+    }
+
+    try {
+      final summaryRes = await _apiClient.dio.get(ApiConstants.dashboard);
+      final summary = DashboardSummaryModel.fromJson(summaryRes.data);
+
+      final ipoRes = await _apiClient.dio.get(ApiConstants.ipoList);
+      final list = (ipoRes.data as List).map((i) => IpoItemModel.fromJson(i)).toList();
+
+      state = state.copyWith(
+        isLoading: false,
+        ipos: list,
+        summary: summary,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Failed to load IPO data',
+      );
+    }
+  }
+
+  void setIssueTypeFilter(String issueType) {
+    state = state.copyWith(selectedIssueType: issueType);
+  }
+
+  void setStatusFilter(String status) {
+    state = state.copyWith(selectedStatusFilter: status);
+  }
+
+  void setSearchQuery(String query) {
+    state = state.copyWith(searchQuery: query);
+  }
+}
+
+final ipoListProvider = NotifierProvider<IpoListNotifier, IpoListState>(IpoListNotifier.new);

@@ -1,0 +1,23 @@
+# Environment and secrets
+.env
+*.key
+*.pem
+
+# Dependencies
+node_modules/
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# Builds
+dist/
+build/
+coverage/
+
+# IDE & OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

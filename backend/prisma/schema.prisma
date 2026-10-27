@@ -1,0 +1,161 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum IssueType {
+  MAINBOARD
+  SME
+}
+
+enum AllotmentStatus {
+  ALLOTTED
+  NOT_ALLOTTED
+  PENDING
+  LOOKUP_FAILED
+  NOT_SUPPORTED
+}
+
+enum JobStatus {
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  fullName     String?
+  role         Role          @default(USER)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  savedPan     SavedPan?
+  refreshJobs  RefreshJob[]
+
+  @@map("users")
+}
+
+model SavedPan {
+  id               String            @id @default(uuid())
+  userId           String            @unique
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  encryptedPan     String            // AES-256-GCM ciphertext + IV + auth tag
+  panMasked        String            // Masked presentation e.g. "ABCDE****F"
+  panFingerprint   String            // Non-reversible keyed HMAC-SHA256
+  consentGiven     Boolean           @default(true)
+  consentTimestamp DateTime          @default(now())
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  checks           AllotmentCheck[]
+  history          AllotmentHistory[]
+
+  @@map("saved_pans")
+}
+
+model IPO {
+  id                     String             @id @default(uuid())
+  externalId             String?            @unique // Unique external identifier e.g. "KFIN_78061126051" or "MUFG_11968"
+  name                   String
+  slug                   String             @unique
+  issueType              IssueType          @default(MAINBOARD)
+  openDate               DateTime?
+  closeDate              DateTime?
+  priceBand              String?            // e.g. "₹240 - ₹250"
+  lotSize                Int?
+  allotmentDate          DateTime?
+  listingDate            DateTime?
+  registrar              String             // e.g. "KFINTECH", "MUFG_INTIME", "BIGSHARE", "SKYLINE", etc.
+  officialVerificationUrl String            // Official investor lookup portal URL
+  metadata               Json?              // Flexible additional metadata
+  isActive               Boolean            @default(true)
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  checks                 AllotmentCheck[]
+  history                AllotmentHistory[]
+
+  @@index([registrar])
+  @@index([isActive])
+  @@index([allotmentDate])
+  @@map("ipos")
+}
+
+model AllotmentCheck {
+  id                 String           @id @default(uuid())
+  savedPanId         String
+  savedPan           SavedPan         @relation(fields: [savedPanId], references: [id], onDelete: Cascade)
+  ipoId              String
+  ipo                IPO              @relation(fields: [ipoId], references: [id], onDelete: Cascade)
+  
+  // Confirmed status (never degraded by a subsequent lookup failure)
+  status             AllotmentStatus  @default(PENDING)
+  allottedQuantity   Int?
+  
+  // Latest lookup attempt diagnostics
+  latestAttemptStatus AllotmentStatus @default(PENDING)
+  source             String           // e.g. "PEEK_KFINTECH", "PEEK_MUFG", "MANUAL"
+  checkedAt          DateTime         @default(now())
+  errorCode          String?
+  diagnosticMessage  String?
+
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([savedPanId, ipoId])
+  @@index([savedPanId])
+  @@index([ipoId])
+  @@index([status])
+  @@map("allotment_checks")
+}
+
+model AllotmentHistory {
+  id                String          @id @default(uuid())
+  savedPanId        String
+  savedPan          SavedPan        @relation(fields: [savedPanId], references: [id], onDelete: Cascade)
+  ipoId             String
+  ipo               IPO             @relation(fields: [ipoId], references: [id], onDelete: Cascade)
+  status            AllotmentStatus
+  allottedQuantity  Int?
+  source            String
+  errorCode         String?
+  diagnosticMessage String?
+  timestamp         DateTime        @default(now())
+
+  @@index([savedPanId, ipoId])
+  @@index([timestamp])
+  @@map("allotment_history")
+}
+
+model RefreshJob {
+  id               String     @id @default(uuid())
+  userId           String
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status           JobStatus  @default(QUEUED)
+  totalIpos        Int        @default(0)
+  processedIpos    Int        @default(0)
+  allottedCount    Int        @default(0)
+  notAllottedCount Int        @default(0)
+  pendingCount     Int        @default(0)
+  failedCount      Int        @default(0)
+  startedAt        DateTime   @default(now())
+  completedAt      DateTime?
+  errorSummary     String?
+
+  @@index([userId, status])
+  @@index([startedAt])
+  @@map("refresh_jobs")
+}

@@ -1,0 +1,70 @@
+services:
+  # Dedicated, isolated PostgreSQL container for IPO Tracker
+  # Zero interference with nith_connect_db (5432) or money_game_db (5433)
+  ipo_db:
+    image: postgres:16-alpine
+    container_name: ipo_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ipo_db}
+      POSTGRES_USER: ${POSTGRES_USER:-ipo_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ipo_secure_pass_2026}
+    volumes:
+      - ipo_pgdata:/var/lib/postgresql/data
+    networks:
+      - ipo_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ipo_user} -d ${POSTGRES_DB:-ipo_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # PEEK Microservice (Internal only - NOT exposed to public internet)
+  ipo_peek:
+    build:
+      context: ./peek
+      dockerfile: Dockerfile
+    container_name: ipo_peek
+    restart: always
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - ipo_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Primary NestJS Application
+  ipo_app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ipo_app
+    restart: always
+    ports:
+      # Binds only to localhost on host port 5000 (fronted securely by Nginx reverse proxy)
+      - "${HOST_BIND:-127.0.0.1}:${PORT:-5000}:5000"
+    networks:
+      - ipo_network
+    depends_on:
+      ipo_db:
+        condition: service_healthy
+      ipo_peek:
+        condition: service_healthy
+    environment:
+      - PORT=${PORT:-5000}
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-ipo_user}:${POSTGRES_PASSWORD:-ipo_secure_pass_2026}@ipo_db:5432/${POSTGRES_DB:-ipo_db}?schema=public
+      - PAN_ENCRYPTION_KEY=${PAN_ENCRYPTION_KEY:?Set PAN_ENCRYPTION_KEY in .env}
+      - PAN_HMAC_KEY=${PAN_HMAC_KEY:?Set PAN_HMAC_KEY in .env}
+      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET in .env}
+      - PEEK_SERVICE_URL=http://ipo_peek:8000
+
+networks:
+  ipo_network:
+    driver: bridge
+
+volumes:
+  ipo_pgdata:
