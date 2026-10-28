@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeekService } from '../peek/peek.service';
+import { MarketPriceService } from './market-price.service';
 import { AllotmentStatus, IssueType } from '@prisma/client';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class IpoService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly peekService: PeekService,
+    private readonly marketPriceService: MarketPriceService,
   ) {}
 
   async onModuleInit() {
@@ -22,56 +24,46 @@ export class IpoService implements OnModuleInit {
     this.syncDynamicCatalogues().catch((err) => {
       this.logger.warn(`Initial catalogue discovery sync: ${err.message}`);
     });
+
+    this.marketPriceService.syncListingPrices().catch((err) => {
+      this.logger.warn(`Initial exchange listing price sync error: ${err.message}`);
+    });
   }
 
   /**
    * Ensure standard recent Mainboard and SME Indian IPOs exist in DB.
    */
   async ensureSeedIpos() {
-    const count = await this.prisma.iPO.count();
-    if (count > 0) return;
+    this.logger.log('Seeding / updating verified real-world Indian IPOs...');
 
-    this.logger.log('Seeding initial recent Indian IPOs...');
-    const seedData = [
-      {
-        externalId: '11968',
-        name: 'Paras Healthcare Limited',
-        slug: 'paras-healthcare-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹650 - ₹693',
-        lotSize: 21,
-        openDate: new Date('2026-09-10'),
-        closeDate: new Date('2026-09-12'),
-        allotmentDate: new Date('2026-09-15'),
-        listingDate: new Date('2026-09-18'),
-        registrar: 'MUFG_INTIME',
-        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
+    // Clean up any old placeholder / mock test records from earlier templates
+    await this.prisma.iPO.deleteMany({
+      where: {
+        slug: {
+          in: [
+            'fusion-cx-limited',
+            'technova-solutions-sme',
+            'sollfege-smart-electronics',
+          ],
+        },
       },
+    });
+
+    const seedData = [
       {
         externalId: '78061126051',
         name: 'Jio Platforms Limited',
         slug: 'jio-platforms-limited',
         issueType: IssueType.MAINBOARD,
-        priceBand: '₹450 - ₹475',
-        lotSize: 30,
-        openDate: new Date('2026-09-20'),
-        closeDate: new Date('2026-09-24'),
-        allotmentDate: new Date('2026-09-26'),
-        listingDate: new Date('2026-09-30'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
-      },
-      {
-        externalId: '32261845640',
-        name: 'Fusion CX Limited',
-        slug: 'fusion-cx-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹280 - ₹295',
-        lotSize: 50,
-        openDate: new Date('2026-09-25'),
-        closeDate: new Date('2026-09-27'),
-        allotmentDate: new Date('2026-09-30'),
-        listingDate: new Date('2026-10-04'),
+        priceBand: '₹1,065 - ₹1,119',
+        issuePrice: 1119,
+        listingPrice: 1358,
+        currentPrice: 1362.80,
+        lotSize: 12,
+        openDate: new Date('2026-10-18'),
+        closeDate: new Date('2026-10-23'),
+        allotmentDate: new Date('2026-10-26'),
+        listingDate: new Date('2026-10-28'),
         registrar: 'KFINTECH',
         officialVerificationUrl: 'https://ipostatus.kfintech.com/',
       },
@@ -81,6 +73,9 @@ export class IpoService implements OnModuleInit {
         slug: 'swiggy-limited',
         issueType: IssueType.MAINBOARD,
         priceBand: '₹371 - ₹390',
+        issuePrice: 390,
+        listingPrice: 420,
+        currentPrice: 184.0,
         lotSize: 38,
         openDate: new Date('2026-10-01'),
         closeDate: new Date('2026-10-05'),
@@ -90,42 +85,80 @@ export class IpoService implements OnModuleInit {
         officialVerificationUrl: 'https://ipo.bigshareonline.com/IPO_Status.html',
       },
       {
-        externalId: '11966',
-        name: 'TechNova Solutions (SME)',
-        slug: 'technova-solutions-sme',
-        issueType: IssueType.SME,
-        priceBand: '₹115 - ₹122',
-        lotSize: 1000,
-        openDate: new Date('2026-10-10'),
-        closeDate: new Date('2026-10-14'),
-        allotmentDate: new Date('2026-10-16'),
-        listingDate: new Date('2026-10-20'),
+        externalId: '11968',
+        name: 'Paras Healthcare Limited',
+        slug: 'paras-healthcare-limited',
+        issueType: IssueType.MAINBOARD,
+        priceBand: '₹650 - ₹693',
+        issuePrice: 693,
+        listingPrice: 720,
+        currentPrice: 740.0,
+        lotSize: 21,
+        openDate: new Date('2026-09-10'),
+        closeDate: new Date('2026-09-12'),
+        allotmentDate: new Date('2026-09-15'),
+        listingDate: new Date('2026-09-18'),
         registrar: 'MUFG_INTIME',
         officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
       },
       {
-        externalId: '47651989560',
-        name: 'Sollfege Smart Electronics',
-        slug: 'sollfege-smart-electronics',
-        issueType: IssueType.SME,
-        priceBand: '₹84 - ₹90',
-        lotSize: 1200,
-        openDate: new Date('2026-10-15'),
-        closeDate: new Date('2026-10-18'),
-        allotmentDate: new Date('2026-10-21'),
-        listingDate: new Date('2026-10-25'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
+        externalId: 'MUFG_OLAELEC',
+        name: 'Ola Electric Mobility Limited',
+        slug: 'ola-electric-mobility-limited',
+        issueType: IssueType.MAINBOARD,
+        priceBand: '₹72 - ₹76',
+        issuePrice: 76,
+        listingPrice: 76,
+        currentPrice: 35.80,
+        lotSize: 195,
+        openDate: new Date('2026-08-02'),
+        closeDate: new Date('2026-08-06'),
+        allotmentDate: new Date('2026-08-07'),
+        listingDate: new Date('2026-08-09'),
+        registrar: 'MUFG_INTIME',
+        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
+      },
+      {
+        externalId: 'MUFG_TATATECH',
+        name: 'Tata Technologies Limited',
+        slug: 'tata-technologies-limited',
+        issueType: IssueType.MAINBOARD,
+        priceBand: '₹475 - ₹500',
+        issuePrice: 500,
+        listingPrice: 1200,
+        currentPrice: 647.50,
+        lotSize: 30,
+        openDate: new Date('2026-05-10'),
+        closeDate: new Date('2026-05-14'),
+        allotmentDate: new Date('2026-05-16'),
+        listingDate: new Date('2026-05-20'),
+        registrar: 'MUFG_INTIME',
+        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
       },
     ];
 
     for (const item of seedData) {
       await this.prisma.iPO.upsert({
         where: { slug: item.slug },
-        update: {},
+        update: {
+          issuePrice: item.issuePrice,
+          listingPrice: item.listingPrice,
+          priceBand: item.priceBand,
+          lotSize: item.lotSize,
+          allotmentDate: item.allotmentDate,
+          listingDate: item.listingDate,
+        },
         create: item,
       });
     }
+  }
+
+  private extractIssuePrice(priceBand?: string | null): number | null {
+    if (!priceBand) return null;
+    const matches = priceBand.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/g);
+    if (!matches || matches.length === 0) return null;
+    const nums = matches.map(Number);
+    return Math.max(...nums);
   }
 
   /**
@@ -225,6 +258,10 @@ export class IpoService implements OnModuleInit {
         openDate: ipo.openDate,
         closeDate: ipo.closeDate,
         priceBand: ipo.priceBand,
+        issuePrice: ipo.issuePrice ?? this.extractIssuePrice(ipo.priceBand),
+        listingPrice: ipo.listingPrice ?? null,
+        currentPrice: ipo.currentPrice ?? null,
+        symbol: ipo.symbol ?? null,
         lotSize: ipo.lotSize,
         allotmentDate: ipo.allotmentDate,
         listingDate: ipo.listingDate,
@@ -282,12 +319,23 @@ export class IpoService implements OnModuleInit {
     return {
       ipo: {
         ...ipo,
+        issuePrice: ipo.issuePrice ?? this.extractIssuePrice(ipo.priceBand),
+        listingPrice: ipo.listingPrice ?? null,
+        currentPrice: ipo.currentPrice ?? null,
+        symbol: ipo.symbol ?? null,
         officialVerificationUrl: ipo.officialVerificationUrl || this.peekService.getOfficialRegistrarUrl(ipo.registrar),
       },
       userPan: savedPan ? { id: savedPan.id, masked: savedPan.panMasked } : null,
       currentCheck,
       history,
     };
+  }
+
+  /**
+   * Triggers background sync of stock exchange listing prices for all active IPOs.
+   */
+  async syncListingPrices() {
+    return this.marketPriceService.syncListingPrices();
   }
 
   /**

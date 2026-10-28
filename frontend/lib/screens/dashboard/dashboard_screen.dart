@@ -38,39 +38,393 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     super.dispose();
   }
 
-  Widget _buildSummaryCard(String title, int count, Color color, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
+  Widget _buildSummaryCard({
+    required String title,
+    required int count,
+    required Color color,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? color.withValues(alpha: 0.08) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? color : AppColors.border,
+              width: isSelected ? 2 : 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: isSelected
+                    ? color.withValues(alpha: 0.15)
+                    : Colors.black.withValues(alpha: 0.02),
+                blurRadius: isSelected ? 6 : 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        color: isSelected ? color : AppColors.textSecondary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Icon(
+                    isSelected ? Icons.check_circle : icon,
+                    size: 16,
+                    color: color,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    '$count',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+                  ),
+                  if (isSelected) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'FILTERED',
+                        style: TextStyle(
+                          fontSize: 8,
+                          fontWeight: FontWeight.bold,
+                          color: color,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAllottedProfitSummaryCard(IpoListState ipoState) {
+    final totalProfit = ipoState.totalAllottedProfit;
+    final totalInvested = ipoState.totalAllottedInvested;
+    final totalValue = ipoState.totalAllottedValue;
+    final totalShares = ipoState.totalAllottedShares;
+    final returnPct = ipoState.totalAllottedReturnPercentage;
+    final isPositive = totalProfit >= 0;
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isPositive
+              ? [const Color(0xFF0F5132), const Color(0xFF198754)]
+              : [const Color(0xFF842029), const Color(0xFFDC3545)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
+            color: (isPositive ? AppColors.success : AppColors.error).withValues(alpha: 0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isPositive ? Icons.trending_up : Icons.trending_down,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'TOTAL ALLOTTED PROFIT',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
               ),
-              Icon(icon, size: 16, color: color),
+              if (returnPct != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${isPositive ? '+' : ''}${returnPct.toStringAsFixed(1)}%',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
           Text(
-            '$count',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+            '${isPositive ? '+' : '-'}${currencyFormatter.format(totalProfit.abs())}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Calculated on $totalShares shares across ${ipoState.allottedIpos.length} allotted issue${ipoState.allottedIpos.length == 1 ? '' : 's'}',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.85),
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildProfitMetricItem(
+                  label: 'Invested',
+                  value: currencyFormatter.format(totalInvested),
+                ),
+                Container(width: 1, height: 28, color: Colors.white.withValues(alpha: 0.2)),
+                _buildProfitMetricItem(
+                  label: 'Current Value',
+                  value: currencyFormatter.format(totalValue),
+                ),
+                Container(width: 1, height: 28, color: Colors.white.withValues(alpha: 0.2)),
+                _buildProfitMetricItem(
+                  label: 'Allotted Shares',
+                  value: '$totalShares',
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfitMetricItem({required String label, required String value}) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 10),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAllotmentProfitCard(IpoItemModel ipo) {
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+    final shares = ipo.allottedQuantity ?? 0;
+    final issuePrice = ipo.effectiveIssuePrice;
+    final listingPrice = ipo.effectiveListingPrice;
+    final gainPerShare = ipo.gainPerShare;
+    final gainPct = ipo.gainPercentage;
+    final profit = ipo.totalProfit;
+    final invested = ipo.totalInvested;
+    final currentValue = ipo.totalCurrentValue;
+
+    final isProfit = (profit ?? 0) >= 0;
+    final profitColor = isProfit ? AppColors.success : AppColors.error;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (listingPrice != null ? profitColor : AppColors.primary).withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: (listingPrice != null ? profitColor : AppColors.primary).withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Issued Price',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      issuePrice != null ? currencyFormatter.format(issuePrice) : 'N/A',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Listed Price',
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      listingPrice != null
+                          ? currencyFormatter.format(listingPrice)
+                          : 'Awaiting Listing',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: listingPrice != null ? AppColors.textPrimary : AppColors.warning,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (gainPerShare != null && gainPct != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: profitColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '${isProfit ? '+' : ''}${currencyFormatter.format(gainPerShare)}/sh',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: profitColor),
+                      ),
+                      Text(
+                        '${isProfit ? '+' : ''}${gainPct.toStringAsFixed(1)}%',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: profitColor),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const Divider(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$shares Shares Allotted',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                  ),
+                  if (invested != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Invested: ${currencyFormatter.format(invested)}${currentValue != null ? " • Value: ${currencyFormatter.format(currentValue)}" : ""}',
+                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ],
+              ),
+              if (profit != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: profitColor,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text(
+                        'TOTAL PROFIT',
+                        style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+                      ),
+                      Text(
+                        '${isProfit ? '+' : '-'}${currencyFormatter.format(profit.abs())}',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade100,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Listing Pending',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.amber.shade900),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -307,13 +661,120 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
                 children: [
-                  _buildSummaryCard('Allotted', summary?.allottedCount ?? 0, AppColors.success, Icons.check_circle_outline),
-                  _buildSummaryCard('Not Allotted', summary?.notAllottedCount ?? 0, AppColors.neutral, Icons.cancel_outlined),
-                  _buildSummaryCard('Pending', summary?.pendingCount ?? 0, AppColors.warning, Icons.hourglass_empty_rounded),
-                  _buildSummaryCard('Failed Checks', summary?.lookupFailedCount ?? 0, AppColors.error, Icons.error_outline),
+                  _buildSummaryCard(
+                    title: 'Allotted',
+                    count: summary?.allottedCount ?? 0,
+                    color: AppColors.success,
+                    icon: Icons.check_circle_outline,
+                    isSelected: ipoState.selectedStatusFilter == 'ALLOTTED',
+                    onTap: () {
+                      final current = ipoState.selectedStatusFilter;
+                      ref.read(ipoListProvider.notifier).setStatusFilter(
+                        current == 'ALLOTTED' ? 'ALL' : 'ALLOTTED',
+                      );
+                    },
+                  ),
+                  _buildSummaryCard(
+                    title: 'Not Allotted',
+                    count: summary?.notAllottedCount ?? 0,
+                    color: AppColors.neutral,
+                    icon: Icons.cancel_outlined,
+                    isSelected: ipoState.selectedStatusFilter == 'NOT_ALLOTTED',
+                    onTap: () {
+                      final current = ipoState.selectedStatusFilter;
+                      ref.read(ipoListProvider.notifier).setStatusFilter(
+                        current == 'NOT_ALLOTTED' ? 'ALL' : 'NOT_ALLOTTED',
+                      );
+                    },
+                  ),
+                  _buildSummaryCard(
+                    title: 'Pending',
+                    count: summary?.pendingCount ?? 0,
+                    color: AppColors.warning,
+                    icon: Icons.hourglass_empty_rounded,
+                    isSelected: ipoState.selectedStatusFilter == 'PENDING',
+                    onTap: () {
+                      final current = ipoState.selectedStatusFilter;
+                      ref.read(ipoListProvider.notifier).setStatusFilter(
+                        current == 'PENDING' ? 'ALL' : 'PENDING',
+                      );
+                    },
+                  ),
+                  _buildSummaryCard(
+                    title: 'Failed Checks',
+                    count: summary?.lookupFailedCount ?? 0,
+                    color: AppColors.error,
+                    icon: Icons.error_outline,
+                    isSelected: ipoState.selectedStatusFilter == 'LOOKUP_FAILED',
+                    onTap: () {
+                      final current = ipoState.selectedStatusFilter;
+                      ref.read(ipoListProvider.notifier).setStatusFilter(
+                        current == 'LOOKUP_FAILED' ? 'ALL' : 'LOOKUP_FAILED',
+                      );
+                    },
+                  ),
                 ],
               ),
-              const SizedBox(height: 20),
+
+              // Total Allotted Profit Summary Card (shown when Allotted filter is active)
+              if (ipoState.selectedStatusFilter == 'ALLOTTED') ...[
+                const SizedBox(height: 16),
+                _buildAllottedProfitSummaryCard(ipoState),
+              ],
+
+              // Filter status indicator & reset
+              if (ipoState.selectedStatusFilter != 'ALL') ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.filter_list,
+                            size: 16,
+                            color: ipoState.selectedStatusFilter == 'ALLOTTED'
+                                ? AppColors.success
+                                : AppColors.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Showing: ${ipoState.selectedStatusFilter.replaceAll('_', ' ')} (${filteredList.length})',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      InkWell(
+                        onTap: () => ref.read(ipoListProvider.notifier).setStatusFilter('ALL'),
+                        borderRadius: BorderRadius.circular(4),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          child: Row(
+                            children: const [
+                              Icon(Icons.close, size: 14, color: AppColors.accent),
+                              SizedBox(width: 4),
+                              Text('Clear Filter', style: TextStyle(fontSize: 12, color: AppColors.accent, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              const SizedBox(height: 16),
 
               // Search Bar
               TextField(
@@ -377,11 +838,48 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 Container(
                   padding: const EdgeInsets.all(32),
                   alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
                   child: Column(
-                    children: const [
-                      Icon(Icons.inventory_2_outlined, size: 48, color: AppColors.neutral),
-                      SizedBox(height: 12),
-                      Text('No IPOs found matching criteria', style: TextStyle(color: AppColors.textSecondary)),
+                    children: [
+                      Icon(
+                        ipoState.selectedStatusFilter == 'ALLOTTED'
+                            ? Icons.monetization_on_outlined
+                            : Icons.inventory_2_outlined,
+                        size: 48,
+                        color: ipoState.selectedStatusFilter == 'ALLOTTED'
+                            ? AppColors.success
+                            : AppColors.neutral,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        ipoState.selectedStatusFilter == 'ALLOTTED'
+                            ? 'No Allotted IPOs Found'
+                            : 'No IPOs found matching criteria',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        ipoState.selectedStatusFilter == 'ALLOTTED'
+                            ? 'When an IPO is allotted to your linked PAN, its issued price, listed price, and total calculated profit will appear here.'
+                            : 'Try adjusting your search query or status filter.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
+                      ),
+                      if (ipoState.selectedStatusFilter != 'ALL') ...[
+                        const SizedBox(height: 14),
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                          ),
+                          onPressed: () => ref.read(ipoListProvider.notifier).setStatusFilter('ALL'),
+                          child: const Text('Show All IPOs'),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -397,7 +895,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       elevation: 0,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: const BorderSide(color: AppColors.border),
+                        side: BorderSide(
+                          color: ipo.status == AllotmentStatusEnum.allotted
+                              ? AppColors.success.withValues(alpha: 0.3)
+                              : AppColors.border,
+                        ),
                       ),
                       color: Colors.white,
                       child: InkWell(
@@ -472,6 +974,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   _buildStatusBadge(ipo.status, ipo.allottedQuantity),
                                 ],
                               ),
+                              if (ipo.status == AllotmentStatusEnum.allotted)
+                                _buildAllotmentProfitCard(ipo),
                             ],
                           ),
                         ),

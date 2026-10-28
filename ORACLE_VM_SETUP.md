@@ -113,7 +113,7 @@ Edit `/etc/nginx/sites-available/default` (or create `/etc/nginx/sites-available
 ```nginx
 server {
     listen 80;
-    server_name ipo.yourdomain.com; # Or 132-226-186-196.sslip.io/ipo/
+    server_name ipo.132-226-186-196.sslip.io;
 
     location / {
         proxy_pass http://127.0.0.1:5000;
@@ -136,7 +136,7 @@ server {
 
 Enable SSL using Certbot:
 ```bash
-sudo certbot --nginx -d ipo.yourdomain.com
+sudo certbot --nginx -d ipo.132-226-186-196.sslip.io
 ```
 
 ---
@@ -149,11 +149,20 @@ When building the Flutter application for mobile or web:
 cd ~/Projects/IPO/frontend
 
 # For Web:
-flutter build web --dart-define=API_BASE_URL=https://ipo.yourdomain.com
+flutter build web --dart-define=API_BASE_URL=https://ipo.132-226-186-196.sslip.io
 
 # For Android APK:
-flutter build apk --release --dart-define=API_BASE_URL=https://ipo.yourdomain.com
+flutter build apk --release --dart-define=API_BASE_URL=https://ipo.132-226-186-196.sslip.io
 ```
+
+Use the full hostname including the `ipo.` prefix. The bare
+`132-226-186-196.sslip.io` hostname routes to NithConnect on port 3000 and returns
+`Cannot POST /api/auth/login` for IPO login requests. Do not append `/api` or
+`/api/docs` to `API_BASE_URL`; the app supplies its own API paths.
+
+`API_BASE_URL` is embedded at build time. After changing it, rebuild and install
+the new `frontend/build/app/outputs/flutter-apk/app-release.apk` on your phone.
+Restarting the backend or reopening the old APK does not change its API address.
 
 ---
 

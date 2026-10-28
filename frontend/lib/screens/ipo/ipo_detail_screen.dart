@@ -182,6 +182,108 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
     );
   }
 
+  Widget _buildAllotmentProfitDetailCard() {
+    if (_ipo == null || _currentStatus != AllotmentStatusEnum.allotted || _allottedQuantity == null || _allottedQuantity! <= 0) {
+      return const SizedBox.shrink();
+    }
+    final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
+    final shares = _allottedQuantity!;
+    final issuePrice = _ipo!.effectiveIssuePrice;
+    final listingPrice = _ipo!.effectiveListingPrice;
+    final gainPerShare = _ipo!.gainPerShare;
+    final gainPct = _ipo!.gainPercentage;
+    final profit = gainPerShare != null ? gainPerShare * shares : null;
+    final invested = issuePrice != null ? issuePrice * shares : null;
+    final currentValue = listingPrice != null ? listingPrice * shares : null;
+    final isProfit = (profit ?? 0) >= 0;
+    final profitColor = isProfit ? AppColors.success : AppColors.error;
+
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(top: 20),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: profitColor.withValues(alpha: 0.3)),
+      ),
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(isProfit ? Icons.trending_up : Icons.trending_down, color: profitColor, size: 22),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Allotment Profit Calculation',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+                if (gainPct != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: profitColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '${isProfit ? '+' : ''}${gainPct.toStringAsFixed(1)}%',
+                      style: TextStyle(color: profitColor, fontWeight: FontWeight.bold, fontSize: 12),
+                    ),
+                  ),
+              ],
+            ),
+            const Divider(height: 20),
+            if (profit != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: profitColor.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: profitColor.withValues(alpha: 0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'TOTAL PROFIT ON ALLOTTED SHARES',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${isProfit ? '+' : '-'}${currencyFormatter.format(profit.abs())}',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: profitColor),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '($shares Shares × ${currencyFormatter.format(gainPerShare?.abs() ?? 0)} ${isProfit ? 'Gain' : 'Loss'} per share)',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            _buildDetailRow('Shares Allotted', '$shares Shares'),
+            _buildDetailRow('Issued Price', issuePrice != null ? currencyFormatter.format(issuePrice) : 'N/A'),
+            _buildDetailRow(
+              'Listed Price',
+              listingPrice != null ? currencyFormatter.format(listingPrice) : 'Awaiting Listing',
+            ),
+            if (invested != null) _buildDetailRow('Total Invested Amount', currencyFormatter.format(invested)),
+            if (currentValue != null) _buildDetailRow('Current Listed Value', currencyFormatter.format(currentValue)),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -205,6 +307,8 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _buildStatusBanner(),
+                      if (_currentStatus == AllotmentStatusEnum.allotted && _allottedQuantity != null && _allottedQuantity! > 0)
+                        _buildAllotmentProfitDetailCard(),
                       const SizedBox(height: 20),
 
                       // Official Registrar Verification Action Card
@@ -278,6 +382,10 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
                               const Divider(height: 20),
                               _buildDetailRow('Issue Type', _ipo?.issueType ?? 'MAINBOARD'),
                               if (_ipo?.priceBand != null) _buildDetailRow('Price Band', _ipo!.priceBand!),
+                              if (_ipo?.effectiveIssuePrice != null)
+                                _buildDetailRow('Issued Price', '₹${_ipo!.effectiveIssuePrice!.toStringAsFixed(0)}'),
+                              if (_ipo?.effectiveListingPrice != null)
+                                _buildDetailRow('Listed Price', '₹${_ipo!.effectiveListingPrice!.toStringAsFixed(0)}'),
                               if (_ipo?.lotSize != null) _buildDetailRow('Lot Size', '${_ipo!.lotSize} Shares'),
                               if (_ipo?.openDate != null)
                                 _buildDetailRow('Issue Open', DateFormat('dd MMM yyyy').format(_ipo!.openDate!)),

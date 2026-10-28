@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards } from '@nestjs/common';
 import { IpoService } from './ipo.service';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -21,6 +21,11 @@ export class IpoController {
   @Get('dashboard')
   async getDashboardSummary(@CurrentUser() user: { id: string }) {
     return this.ipoService.getDashboardSummary(user.id);
+  }
+
+  @Post('sync-listing-prices')
+  async syncListingPrices() {
+    return this.ipoService.syncListingPrices();
   }
 
   @Get(':id')

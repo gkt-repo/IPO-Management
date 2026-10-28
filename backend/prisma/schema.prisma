@@ -75,6 +75,10 @@ model IPO {
   openDate               DateTime?
   closeDate              DateTime?
   priceBand              String?            // e.g. "₹240 - ₹250"
+  issuePrice             Float?             // Issue / Cut-off price e.g. 693.0
+  listingPrice           Float?             // Initial listing open price on exchange e.g. 720.0
+  currentPrice           Float?             // Current market price (CMP) e.g. 740.0
+  symbol                 String?            // Exchange ticker symbol e.g. "PARASHLTH.NS"
   lotSize                Int?
   allotmentDate          DateTime?
   listingDate            DateTime?

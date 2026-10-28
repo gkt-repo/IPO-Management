@@ -49,6 +49,61 @@ class IpoListState {
     }).toList();
   }
 
+  /// List of all allotted IPOs regardless of current filter
+  List<IpoItemModel> get allottedIpos =>
+      ipos.where((ipo) => ipo.status == AllotmentStatusEnum.allotted).toList();
+
+  /// Total profit across all allotted IPOs based on shares allotted
+  double get totalAllottedProfit {
+    double total = 0;
+    for (final ipo in allottedIpos) {
+      if (ipo.totalProfit != null) {
+        total += ipo.totalProfit!;
+      }
+    }
+    return total;
+  }
+
+  /// Total investment across all allotted IPOs
+  double get totalAllottedInvested {
+    double total = 0;
+    for (final ipo in allottedIpos) {
+      if (ipo.totalInvested != null) {
+        total += ipo.totalInvested!;
+      }
+    }
+    return total;
+  }
+
+  /// Total current market value across all allotted IPOs
+  double get totalAllottedValue {
+    double total = 0;
+    for (final ipo in allottedIpos) {
+      if (ipo.totalCurrentValue != null) {
+        total += ipo.totalCurrentValue!;
+      }
+    }
+    return total;
+  }
+
+  /// Total shares allotted across all allotted IPOs
+  int get totalAllottedShares {
+    int total = 0;
+    for (final ipo in allottedIpos) {
+      if (ipo.allottedQuantity != null) {
+        total += ipo.allottedQuantity!;
+      }
+    }
+    return total;
+  }
+
+  /// Overall profit percentage across all allotted IPOs
+  double? get totalAllottedReturnPercentage {
+    final invested = totalAllottedInvested;
+    if (invested <= 0) return null;
+    return (totalAllottedProfit / invested) * 100.0;
+  }
+
   IpoListState copyWith({
     bool? isLoading,
     List<IpoItemModel>? ipos,
