@@ -93,7 +93,12 @@ class AuthNotifier extends Notifier<AuthState> {
     }
   }
 
-  Future<bool> register(String email, String password, String? fullName) async {
+  Future<bool> register(
+    String email,
+    String password,
+    String? fullName, {
+    String? passwordHint,
+  }) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
       final res = await _apiClient.dio.post(
@@ -102,6 +107,7 @@ class AuthNotifier extends Notifier<AuthState> {
           'email': email,
           'password': password,
           if (fullName != null && fullName.isNotEmpty) 'fullName': fullName,
+          if (passwordHint != null && passwordHint.isNotEmpty) 'passwordHint': passwordHint,
         },
       );
       final token = res.data['accessToken'] as String;
@@ -123,6 +129,27 @@ class AuthNotifier extends Notifier<AuthState> {
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: 'Unexpected connection error');
       return false;
+    }
+  }
+
+  Future<({bool success, String? hint, String message})> getPasswordHint(String email) async {
+    try {
+      final res = await _apiClient.dio.post(
+        ApiConstants.forgotPasswordHint,
+        data: {'email': email.trim().toLowerCase()},
+      );
+      final hint = res.data['hint'] as String?;
+      final message = res.data['message'] as String? ?? '';
+      return (success: hint != null, hint: hint, message: message);
+    } on DioException catch (e) {
+      final msg = e.response?.data?['message'] ?? 'Unable to retrieve password hint.';
+      return (
+        success: false,
+        hint: null,
+        message: msg is List ? msg.join(', ') : msg.toString(),
+      );
+    } catch (e) {
+      return (success: false, hint: null, message: 'Connection error. Please try again.');
     }
   }
 

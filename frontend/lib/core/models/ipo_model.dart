@@ -64,6 +64,7 @@ class IpoItemModel {
   final DateTime? lastCheckedAt;
   final String? diagnosticMessage;
   final bool hasApplied;
+  final bool? isUpcomingExplicit;
 
   IpoItemModel({
     required this.id,
@@ -87,7 +88,30 @@ class IpoItemModel {
     this.lastCheckedAt,
     this.diagnosticMessage,
     this.hasApplied = false,
+    this.isUpcomingExplicit,
   });
+
+  bool get isUpcoming {
+    if (isUpcomingExplicit != null) return isUpcomingExplicit!;
+    final now = DateTime.now();
+    // If already listed or listing price is available, not upcoming
+    if ((listingDate != null && listingDate!.isBefore(now)) || listingPrice != null) {
+      return false;
+    }
+    // If explicit openDate is in the future
+    if (openDate != null && openDate!.isAfter(now)) {
+      return true;
+    }
+    // If closeDate is in the future or today
+    if (closeDate != null && closeDate!.isAfter(now.subtract(const Duration(days: 1)))) {
+      return true;
+    }
+    // If allotmentDate is in the future
+    if (allotmentDate != null && allotmentDate!.isAfter(now)) {
+      return true;
+    }
+    return false;
+  }
 
   static double? _extractUpperPrice(String? priceBand) {
     if (priceBand == null || priceBand.isEmpty) return null;
@@ -242,6 +266,7 @@ class IpoItemModel {
       lastCheckedAt: json['lastCheckedAt'] != null ? DateTime.tryParse(json['lastCheckedAt']) : null,
       diagnosticMessage: json['diagnosticMessage'] as String?,
       hasApplied: hasApplied,
+      isUpcomingExplicit: json['isUpcoming'] as bool?,
     );
   }
 
@@ -267,6 +292,7 @@ class IpoItemModel {
     DateTime? lastCheckedAt,
     String? diagnosticMessage,
     bool? hasApplied,
+    bool? isUpcomingExplicit,
   }) {
     return IpoItemModel(
       id: id ?? this.id,
@@ -290,6 +316,7 @@ class IpoItemModel {
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
       diagnosticMessage: diagnosticMessage ?? this.diagnosticMessage,
       hasApplied: hasApplied ?? this.hasApplied,
+      isUpcomingExplicit: isUpcomingExplicit ?? this.isUpcomingExplicit,
     );
   }
 }

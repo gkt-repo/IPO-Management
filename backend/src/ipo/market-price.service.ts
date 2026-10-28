@@ -173,7 +173,7 @@ export class MarketPriceService {
       where: {
         OR: [
           { listingDate: { lte: now } },
-          { listingPrice: null },
+          { listingDate: null, listingPrice: null },
         ],
       },
     });

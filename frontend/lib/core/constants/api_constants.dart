@@ -11,6 +11,7 @@ class ApiConstants {
   // Auth endpoints
   static const String login = '/api/auth/login';
   static const String register = '/api/auth/register';
+  static const String forgotPasswordHint = '/api/auth/forgot-password-hint';
   static const String me = '/api/auth/me';
 
   // PAN endpoints

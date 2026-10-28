@@ -30,6 +30,7 @@ export class AuthService {
         email,
         passwordHash,
         fullName: dto.fullName?.trim() || null,
+        passwordHint: dto.passwordHint?.trim() || null,
       },
       select: {
         id: true,
@@ -103,6 +104,33 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async getPasswordHint(rawEmail: string): Promise<{ hint: string | null; message: string }> {
+    const email = rawEmail.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: { passwordHint: true },
+    });
+
+    if (!user) {
+      return {
+        hint: null,
+        message: 'No account registered with this email address.',
+      };
+    }
+
+    if (!user.passwordHint || user.passwordHint.trim().length === 0) {
+      return {
+        hint: null,
+        message: 'No password hint was set for this account.',
+      };
+    }
+
+    return {
+      hint: user.passwordHint,
+      message: 'Password hint retrieved successfully.',
+    };
   }
 
   private generateToken(userId: string, email: string): string {

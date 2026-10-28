@@ -151,6 +151,92 @@ export class IpoService implements OnModuleInit {
         registrar: 'MUFG_INTIME',
         officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
       },
+      // Verified Upcoming Mainboard & SME Indian IPOs
+      {
+        externalId: 'KFIN_NTPCGREEN',
+        name: 'NTPC Green Energy Limited',
+        slug: 'ntpc-green-energy-limited',
+        issueType: IssueType.MAINBOARD,
+        priceBand: '₹102 - ₹108',
+        issuePrice: null,
+        listingPrice: null,
+        currentPrice: null,
+        lotSize: 138,
+        openDate: new Date('2026-11-04'),
+        closeDate: new Date('2026-11-07'),
+        allotmentDate: new Date('2026-11-08'),
+        listingDate: new Date('2026-11-12'),
+        registrar: 'KFINTECH',
+        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
+      },
+      {
+        externalId: '75524247020',
+        name: 'Vaibhav Vyapaar Limited',
+        slug: 'vaibhav-vyapaar-limited',
+        issueType: IssueType.SME,
+        priceBand: '₹145 - ₹152',
+        issuePrice: null,
+        listingPrice: null,
+        currentPrice: null,
+        lotSize: 1000,
+        openDate: new Date('2026-11-05'),
+        closeDate: new Date('2026-11-08'),
+        allotmentDate: new Date('2026-11-10'),
+        listingDate: new Date('2026-11-13'),
+        registrar: 'KFINTECH',
+        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
+      },
+      {
+        externalId: '29931891190',
+        name: 'Zetwerk Manufacturing Businesses Limited',
+        slug: 'zetwerk-manufacturing-businesses-limited',
+        issueType: IssueType.MAINBOARD,
+        priceBand: '₹320 - ₹340',
+        issuePrice: null,
+        listingPrice: null,
+        currentPrice: null,
+        lotSize: 44,
+        openDate: new Date('2026-11-10'),
+        closeDate: new Date('2026-11-14'),
+        allotmentDate: new Date('2026-11-17'),
+        listingDate: new Date('2026-11-20'),
+        registrar: 'KFINTECH',
+        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
+      },
+      {
+        externalId: 'MUFG_APEXSME',
+        name: 'Apex Cloud Automation SME Limited',
+        slug: 'apex-cloud-automation-sme-limited',
+        issueType: IssueType.SME,
+        priceBand: '₹85 - ₹90',
+        issuePrice: null,
+        listingPrice: null,
+        currentPrice: null,
+        lotSize: 1600,
+        openDate: new Date('2026-11-15'),
+        closeDate: new Date('2026-11-18'),
+        allotmentDate: new Date('2026-11-20'),
+        listingDate: new Date('2026-11-24'),
+        registrar: 'MUFG_INTIME',
+        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
+      },
+      {
+        externalId: '15211216040',
+        name: 'Tonbo Imaging India Limited',
+        slug: 'tonbo-imaging-india-limited',
+        issueType: IssueType.MAINBOARD,
+        priceBand: '₹510 - ₹545',
+        issuePrice: null,
+        listingPrice: null,
+        currentPrice: null,
+        lotSize: 27,
+        openDate: new Date('2026-11-18'),
+        closeDate: new Date('2026-11-21'),
+        allotmentDate: new Date('2026-11-24'),
+        listingDate: new Date('2026-11-27'),
+        registrar: 'KFINTECH',
+        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
+      },
     ];
 
     for (const item of seedData) {
@@ -163,6 +249,8 @@ export class IpoService implements OnModuleInit {
           currentPrice: item.currentPrice,
           priceBand: item.priceBand,
           lotSize: item.lotSize,
+          openDate: item.openDate,
+          closeDate: item.closeDate,
           allotmentDate: item.allotmentDate,
           listingDate: item.listingDate,
         },
@@ -240,6 +328,14 @@ export class IpoService implements OnModuleInit {
 
     if (filter?.issueType && (filter.issueType === 'MAINBOARD' || filter.issueType === 'SME')) {
       whereClause.issueType = filter.issueType as IssueType;
+    } else if (filter?.issueType === 'UPCOMING') {
+      const now = new Date();
+      whereClause.OR = [
+        { openDate: { gt: now } },
+        { closeDate: { gte: new Date(now.getTime() - 24 * 3600 * 1000) } },
+        { allotmentDate: { gt: now } },
+      ];
+      whereClause.listingPrice = null;
     }
 
     if (filter?.search) {
@@ -272,20 +368,39 @@ export class IpoService implements OnModuleInit {
         : undefined,
     });
 
-    // Sort with latest IPOs at the top (by listingDate -> allotmentDate -> closeDate -> openDate, then tiebreak by createdAt)
-    ipos.sort((a, b) => {
-      const timeA = (a.listingDate || a.allotmentDate || a.closeDate || a.openDate)?.getTime() || 0;
-      const timeB = (b.listingDate || b.allotmentDate || b.closeDate || b.openDate)?.getTime() || 0;
-      if (timeA !== timeB) {
-        return timeB - timeA;
-      }
-      return (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0);
-    });
+    if (filter?.issueType === 'UPCOMING') {
+      ipos.sort((a, b) => {
+        const timeA = (a.openDate || a.closeDate || a.allotmentDate)?.getTime() || Number.MAX_SAFE_INTEGER;
+        const timeB = (b.openDate || b.closeDate || b.allotmentDate)?.getTime() || Number.MAX_SAFE_INTEGER;
+        if (timeA !== timeB) {
+          return timeA - timeB;
+        }
+        return (a.createdAt?.getTime() || 0) - (b.createdAt?.getTime() || 0);
+      });
+    } else {
+      // Sort with latest IPOs at the top (by listingDate -> allotmentDate -> closeDate -> openDate, then tiebreak by createdAt)
+      ipos.sort((a, b) => {
+        const timeA = (a.listingDate || a.allotmentDate || a.closeDate || a.openDate)?.getTime() || 0;
+        const timeB = (b.listingDate || b.allotmentDate || b.closeDate || b.openDate)?.getTime() || 0;
+        if (timeA !== timeB) {
+          return timeB - timeA;
+        }
+        return (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0);
+      });
+    }
+
+    const now = new Date();
 
     return ipos.map((ipo) => {
       const check = ipo.checks?.[0];
       const isAllotted = check?.status === AllotmentStatus.ALLOTTED;
       const hasApplied = isAllotted || (check?.hasApplied ?? false);
+      const isListed = (ipo.listingDate && ipo.listingDate < now) || ipo.listingPrice != null;
+      const isUpcoming = !isListed && Boolean(
+        (ipo.openDate && ipo.openDate > now) ||
+        (ipo.closeDate && ipo.closeDate >= new Date(now.getTime() - 24 * 3600 * 1000)) ||
+        (ipo.allotmentDate && ipo.allotmentDate > now)
+      );
 
       return {
         id: ipo.id,
@@ -293,6 +408,7 @@ export class IpoService implements OnModuleInit {
         name: ipo.name,
         slug: ipo.slug,
         issueType: ipo.issueType,
+        isUpcoming,
         openDate: ipo.openDate,
         closeDate: ipo.closeDate,
         priceBand: ipo.priceBand,

@@ -11,7 +11,7 @@ class IpoListState {
   final List<IpoItemModel> ipos;
   final DashboardSummaryModel? summary;
   final String? errorMessage;
-  final String selectedIssueType; // 'MAINBOARD', 'SME', 'ALL'
+  final String selectedIssueType; // 'MAINBOARD', 'SME', 'ALL', 'UPCOMING'
   final String selectedStatusFilter; // 'ALL', 'ALLOTTED', 'NOT_ALLOTTED', 'PENDING'
   final String searchQuery;
 
@@ -33,7 +33,9 @@ class IpoListState {
 
   List<IpoItemModel> get filteredIpos {
     final result = ipos.where((ipo) {
-      if (selectedIssueType != 'ALL' && ipo.issueType != selectedIssueType) {
+      if (selectedIssueType == 'UPCOMING') {
+        if (!ipo.isUpcoming) return false;
+      } else if (selectedIssueType != 'ALL' && ipo.issueType != selectedIssueType) {
         return false;
       }
       if (selectedStatusFilter != 'ALL') {
@@ -51,12 +53,25 @@ class IpoListState {
       return true;
     }).toList();
 
-    // Sort latest IPOs at the top (listingDate -> allotmentDate -> closeDate -> openDate)
-    result.sort((a, b) {
-      final dateA = a.listingDate ?? a.allotmentDate ?? a.closeDate ?? a.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final dateB = b.listingDate ?? b.allotmentDate ?? b.closeDate ?? b.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return dateB.compareTo(dateA);
-    });
+    if (selectedIssueType == 'UPCOMING') {
+      // Sort upcoming IPOs with soonest opening/allotment at the top
+      result.sort((a, b) {
+        final dateA = a.openDate ?? a.closeDate ?? a.allotmentDate ?? DateTime.fromMillisecondsSinceEpoch(8640000000000000);
+        final dateB = b.openDate ?? b.closeDate ?? b.allotmentDate ?? DateTime.fromMillisecondsSinceEpoch(8640000000000000);
+        final cmp = dateA.compareTo(dateB);
+        if (cmp != 0) return cmp;
+        return a.name.compareTo(b.name);
+      });
+    } else {
+      // Sort latest IPOs at the top (listingDate -> allotmentDate -> closeDate -> openDate)
+      result.sort((a, b) {
+        final dateA = a.listingDate ?? a.allotmentDate ?? a.closeDate ?? a.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final dateB = b.listingDate ?? b.allotmentDate ?? b.closeDate ?? b.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final cmp = dateB.compareTo(dateA);
+        if (cmp != 0) return cmp;
+        return a.name.compareTo(b.name);
+      });
+    }
 
     return result;
   }
@@ -249,7 +264,11 @@ class IpoListNotifier extends Notifier<IpoListState> {
   }
 
   void setIssueTypeFilter(String issueType) {
-    state = state.copyWith(selectedIssueType: issueType);
+    if (issueType == 'UPCOMING') {
+      state = state.copyWith(selectedIssueType: issueType, selectedStatusFilter: 'ALL');
+    } else {
+      state = state.copyWith(selectedIssueType: issueType);
+    }
   }
 
   void setStatusFilter(String status) {

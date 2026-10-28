@@ -15,6 +15,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _fullNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _passwordHintController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   @override
@@ -22,6 +23,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     _fullNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _passwordHintController.dispose();
     super.dispose();
   }
 
@@ -31,6 +33,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             _emailController.text.trim(),
             _passwordController.text,
             _fullNameController.text.trim(),
+            passwordHint: _passwordHintController.text.trim(),
           );
       if (success && mounted) {
         context.go('/pan-settings');
@@ -42,9 +45,19 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/login');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
@@ -159,6 +172,25 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                       return null;
                     },
                   ),
+                  const SizedBox(height: 16),
+
+                  TextFormField(
+                    controller: _passwordHintController,
+                    decoration: InputDecoration(
+                      labelText: 'Password Hint (to recover if forgotten)',
+                      prefixIcon: const Icon(Icons.help_outline),
+                      helperText: 'Shown when you tap "Forgot Password?" to help recall your password',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return 'Please provide a password hint';
+                      }
+                      return null;
+                    },
+                  ),
                   const SizedBox(height: 24),
 
                   ElevatedButton(
@@ -184,7 +216,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     children: [
                       const Text('Already have an account?', style: TextStyle(color: AppColors.textSecondary)),
                       TextButton(
-                        onPressed: () => context.go('/login'),
+                        onPressed: () {
+                          if (context.canPop()) {
+                            context.pop();
+                          } else {
+                            context.go('/login');
+                          }
+                        },
                         child: const Text('Sign In', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.accent)),
                       ),
                     ],
@@ -195,6 +233,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

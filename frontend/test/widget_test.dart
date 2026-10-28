@@ -223,4 +223,99 @@ void main() {
       'Older Mainboard Ltd', // Oct 10
     ]);
   });
+
+  test('IpoItemModel isUpcoming detects upcoming status correctly', () {
+    final now = DateTime.now();
+
+    final pastIpo = IpoItemModel(
+      id: 'past-ipo',
+      name: 'Past IPO',
+      slug: 'past-ipo',
+      issueType: 'MAINBOARD',
+      registrar: 'KFINTECH',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.notAllotted,
+      listingDate: now.subtract(const Duration(days: 5)),
+      listingPrice: 120.0,
+    );
+    expect(pastIpo.isUpcoming, false);
+
+    final futureOpenIpo = IpoItemModel(
+      id: 'future-open',
+      name: 'Future Open IPO',
+      slug: 'future-open',
+      issueType: 'MAINBOARD',
+      registrar: 'KFINTECH',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.notApplied,
+      openDate: now.add(const Duration(days: 7)),
+      closeDate: now.add(const Duration(days: 10)),
+    );
+    expect(futureOpenIpo.isUpcoming, true);
+
+    final explicitIpo = IpoItemModel(
+      id: 'explicit-ipo',
+      name: 'Explicit Upcoming IPO',
+      slug: 'explicit-ipo',
+      issueType: 'SME',
+      registrar: 'MUFG_INTIME',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.notApplied,
+      isUpcomingExplicit: true,
+    );
+    expect(explicitIpo.isUpcoming, true);
+  });
+
+  test('IpoListState filters and sorts UPCOMING IPOs with soonest first', () {
+    final now = DateTime.now();
+
+    final pastIpo = IpoItemModel(
+      id: 'past-ipo',
+      name: 'Past Mainboard Ltd',
+      slug: 'past-mainboard-ltd',
+      issueType: 'MAINBOARD',
+      registrar: 'KFINTECH',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.notAllotted,
+      listingDate: now.subtract(const Duration(days: 2)),
+      listingPrice: 100.0,
+    );
+
+    final soonUpcoming = IpoItemModel(
+      id: 'soon-ipo',
+      name: 'Opening Soon Ltd',
+      slug: 'opening-soon-ltd',
+      issueType: 'MAINBOARD',
+      registrar: 'KFINTECH',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.notApplied,
+      openDate: now.add(const Duration(days: 3)),
+      closeDate: now.add(const Duration(days: 6)),
+      allotmentDate: now.add(const Duration(days: 7)),
+    );
+
+    final laterUpcoming = IpoItemModel(
+      id: 'later-ipo',
+      name: 'Opening Later SME Ltd',
+      slug: 'opening-later-sme-ltd',
+      issueType: 'SME',
+      registrar: 'MUFG_INTIME',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.notApplied,
+      openDate: now.add(const Duration(days: 12)),
+      closeDate: now.add(const Duration(days: 15)),
+      allotmentDate: now.add(const Duration(days: 18)),
+    );
+
+    final state = IpoListState(
+      isLoading: false,
+      ipos: [pastIpo, laterUpcoming, soonUpcoming],
+      selectedIssueType: 'UPCOMING',
+    );
+
+    expect(state.filteredIpos.length, 2);
+    // Soonest upcoming (opens in 3 days) must be first, later upcoming (in 12 days) second
+    expect(state.filteredIpos.first.name, 'Opening Soon Ltd');
+    expect(state.filteredIpos.last.name, 'Opening Later SME Ltd');
+  });
 }

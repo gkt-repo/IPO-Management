@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/ipo_model.dart';
-import '../../providers/auth_provider.dart';
 import '../../providers/pan_provider.dart';
 import '../../providers/ipo_provider.dart';
 import '../../providers/refresh_job_provider.dart';
@@ -431,42 +431,48 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildStatusBadge(AllotmentStatusEnum status, int? shares) {
+  Widget _buildStatusBadge(AllotmentStatusEnum status, int? shares, {bool isUpcoming = false}) {
     Color bg;
     Color fg;
     String label;
 
-    switch (status) {
-      case AllotmentStatusEnum.allotted:
-        bg = AppColors.success.withValues(alpha: 0.12);
-        fg = AppColors.success;
-        label = shares != null && shares > 0 ? '$shares SHARES ALLOTTED' : 'ALLOTTED';
-        break;
-      case AllotmentStatusEnum.notAllotted:
-        bg = AppColors.neutral.withValues(alpha: 0.12);
-        fg = AppColors.neutral;
-        label = 'NOT ALLOTTED';
-        break;
-      case AllotmentStatusEnum.pending:
-        bg = AppColors.warning.withValues(alpha: 0.12);
-        fg = AppColors.warning;
-        label = 'PENDING';
-        break;
-      case AllotmentStatusEnum.lookupFailed:
-        bg = AppColors.error.withValues(alpha: 0.12);
-        fg = AppColors.error;
-        label = 'LOOKUP FAILED';
-        break;
-      case AllotmentStatusEnum.notSupported:
-        bg = AppColors.info.withValues(alpha: 0.12);
-        fg = AppColors.info;
-        label = 'NOT SUPPORTED';
-        break;
-      case AllotmentStatusEnum.notApplied:
-        bg = Colors.grey.shade100;
-        fg = AppColors.textSecondary;
-        label = 'NOT APPLIED';
-        break;
+    if (isUpcoming && status == AllotmentStatusEnum.notApplied) {
+      bg = AppColors.accent.withValues(alpha: 0.12);
+      fg = AppColors.accent;
+      label = 'UPCOMING';
+    } else {
+      switch (status) {
+        case AllotmentStatusEnum.allotted:
+          bg = AppColors.success.withValues(alpha: 0.12);
+          fg = AppColors.success;
+          label = shares != null && shares > 0 ? '$shares SHARES ALLOTTED' : 'ALLOTTED';
+          break;
+        case AllotmentStatusEnum.notAllotted:
+          bg = AppColors.neutral.withValues(alpha: 0.12);
+          fg = AppColors.neutral;
+          label = 'NOT ALLOTTED';
+          break;
+        case AllotmentStatusEnum.pending:
+          bg = AppColors.warning.withValues(alpha: 0.12);
+          fg = AppColors.warning;
+          label = 'PENDING';
+          break;
+        case AllotmentStatusEnum.lookupFailed:
+          bg = AppColors.error.withValues(alpha: 0.12);
+          fg = AppColors.error;
+          label = 'LOOKUP FAILED';
+          break;
+        case AllotmentStatusEnum.notSupported:
+          bg = AppColors.info.withValues(alpha: 0.12);
+          fg = AppColors.info;
+          label = 'NOT SUPPORTED';
+          break;
+        case AllotmentStatusEnum.notApplied:
+          bg = Colors.grey.shade100;
+          fg = AppColors.textSecondary;
+          label = 'NOT APPLIED';
+          break;
+      }
     }
 
     return Container(
@@ -491,28 +497,43 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final summary = ipoState.summary;
     final filteredList = ipoState.filteredIpos;
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('IPO Allotment Tracker', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.credit_card),
-            tooltip: 'PAN Settings',
-            onPressed: () => context.go('/pan-settings'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign Out',
-            onPressed: () async {
-              await ref.read(authProvider.notifier).logout();
-              if (context.mounted) context.go('/login');
-            },
-          ),
-        ],
-      ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        // 1. If search is active, clear it first
+        if (_searchController.text.isNotEmpty) {
+          _searchController.clear();
+          ref.read(ipoListProvider.notifier).setSearchQuery('');
+          return;
+        }
+        // 2. If status filter is active, reset to show ALL
+        if (ref.read(ipoListProvider).selectedStatusFilter != 'ALL') {
+          ref.read(ipoListProvider.notifier).setStatusFilter('ALL');
+          return;
+        }
+        // 3. If non-default issue type filter is active, reset to MAINBOARD
+        if (ref.read(ipoListProvider).selectedIssueType != 'MAINBOARD') {
+          ref.read(ipoListProvider.notifier).setIssueTypeFilter('MAINBOARD');
+          return;
+        }
+        // 4. Otherwise exit the app cleanly
+        SystemNavigator.pop();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          title: const Text('IPO Allotment Tracker', style: TextStyle(fontWeight: FontWeight.bold)),
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.credit_card),
+              tooltip: 'PAN & Account Settings',
+              onPressed: () => context.push('/pan-settings'),
+            ),
+          ],
+        ),
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
@@ -575,7 +596,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
-                        onPressed: () => context.go('/pan-settings'),
+                        onPressed: () => context.push('/pan-settings'),
                         child: const Text('Link PAN', style: TextStyle(fontSize: 12)),
                       ),
                     ],
@@ -771,7 +792,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               const SizedBox(height: 12),
 
-              // Issue Type Filter Chips: 1st Mainboard, 2nd SME, 3rd All
+              // Issue Type Filter Chips: 1st Mainboard, 2nd SME, 3rd All, 4th Upcoming
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -793,9 +814,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                     const SizedBox(width: 8),
                     FilterChip(
-                      label: const Text('All Issues'),
+                      label: const Text('All'),
                       selected: ipoState.selectedIssueType == 'ALL',
                       onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('ALL'),
+                      selectedColor: AppColors.primary.withValues(alpha: 0.15),
+                      checkmarkColor: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('Upcoming'),
+                      selected: ipoState.selectedIssueType == 'UPCOMING',
+                      onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('UPCOMING'),
                       selectedColor: AppColors.primary.withValues(alpha: 0.15),
                       checkmarkColor: AppColors.primary,
                     ),
@@ -826,24 +855,32 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       Icon(
                         ipoState.selectedStatusFilter == 'ALLOTTED'
                             ? Icons.monetization_on_outlined
-                            : Icons.inventory_2_outlined,
+                            : (ipoState.selectedIssueType == 'UPCOMING'
+                                ? Icons.calendar_month_outlined
+                                : Icons.inventory_2_outlined),
                         size: 48,
                         color: ipoState.selectedStatusFilter == 'ALLOTTED'
                             ? AppColors.success
-                            : AppColors.neutral,
+                            : (ipoState.selectedIssueType == 'UPCOMING'
+                                ? AppColors.accent
+                                : AppColors.neutral),
                       ),
                       const SizedBox(height: 12),
                       Text(
                         ipoState.selectedStatusFilter == 'ALLOTTED'
                             ? 'No Allotted IPOs Found'
-                            : 'No IPOs found matching criteria',
+                            : (ipoState.selectedIssueType == 'UPCOMING'
+                                ? 'No Upcoming IPOs Found'
+                                : 'No IPOs found matching criteria'),
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         ipoState.selectedStatusFilter == 'ALLOTTED'
                             ? 'When an IPO is allotted to your linked PAN, its issued price, listed price, and total calculated profit will appear here.'
-                            : 'Try adjusting your search query or status filter.',
+                            : (ipoState.selectedIssueType == 'UPCOMING'
+                                ? 'Upcoming Mainboard and SME IPOs will appear here when their bidding schedules are announced.'
+                                : 'Try adjusting your search query or status filter.'),
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
                       ),
@@ -856,6 +893,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           ),
                           onPressed: () => ref.read(ipoListProvider.notifier).setStatusFilter('ALL'),
                           child: const Text('Show All IPOs'),
+                        ),
+                      ] else if (ipoState.selectedIssueType != 'ALL') ...[
+                        const SizedBox(height: 14),
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                          ),
+                          onPressed: () => ref.read(ipoListProvider.notifier).setIssueTypeFilter('ALL'),
+                          child: const Text('Show All Issues'),
                         ),
                       ],
                     ],
@@ -882,7 +929,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       color: Colors.white,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () => context.go('/ipo/${ipo.id}'),
+                        onTap: () => context.push('/ipo/${ipo.id}'),
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),
                           child: Column(
@@ -942,14 +989,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                           'Price: ${ipo.priceBand}',
                                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
                                         ),
-                                      if (ipo.allotmentDate != null)
+                                      if (ipo.openDate != null && ipo.closeDate != null)
+                                        Text(
+                                          'Bidding: ${DateFormat('dd MMM').format(ipo.openDate!)} - ${DateFormat('dd MMM yyyy').format(ipo.closeDate!)}',
+                                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                        )
+                                      else if (ipo.openDate != null)
+                                        Text(
+                                          'Opens: ${DateFormat('dd MMM yyyy').format(ipo.openDate!)}',
+                                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                        )
+                                      else if (ipo.allotmentDate != null)
                                         Text(
                                           'Allotment: ${DateFormat('dd MMM yyyy').format(ipo.allotmentDate!)}',
                                           style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
                                         ),
                                     ],
                                   ),
-                                  _buildStatusBadge(ipo.status, ipo.allottedQuantity),
+                                  _buildStatusBadge(ipo.status, ipo.allottedQuantity, isUpcoming: ipo.isUpcoming),
                                 ],
                               ),
                               if (ipo.status == AllotmentStatusEnum.allotted) ...[
@@ -1040,6 +1097,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
