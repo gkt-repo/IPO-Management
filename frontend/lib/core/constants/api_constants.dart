@@ -1,8 +1,8 @@
 class ApiConstants {
-  // Use localhost in dev, or your Oracle Cloud VM IP/domain in production
+  // Production Oracle VM endpoint by default
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:5000',
+    defaultValue: 'https://ipo.132-226-186-196.sslip.io',
   );
 
   static const Duration connectTimeout = Duration(seconds: 15);
