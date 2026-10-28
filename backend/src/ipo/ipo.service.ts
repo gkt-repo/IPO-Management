@@ -263,11 +263,14 @@ export class IpoService implements OnModuleInit {
         : undefined,
     });
 
-    // Sort with latest IPOs at the top (by listingDate -> allotmentDate -> closeDate -> openDate -> createdAt)
+    // Sort with latest IPOs at the top (by listingDate -> allotmentDate -> closeDate -> openDate, then tiebreak by createdAt)
     ipos.sort((a, b) => {
-      const timeA = (a.listingDate || a.allotmentDate || a.closeDate || a.openDate || a.createdAt)?.getTime() || 0;
-      const timeB = (b.listingDate || b.allotmentDate || b.closeDate || b.openDate || b.createdAt)?.getTime() || 0;
-      return timeB - timeA;
+      const timeA = (a.listingDate || a.allotmentDate || a.closeDate || a.openDate)?.getTime() || 0;
+      const timeB = (b.listingDate || b.allotmentDate || b.closeDate || b.openDate)?.getTime() || 0;
+      if (timeA !== timeB) {
+        return timeB - timeA;
+      }
+      return (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0);
     });
 
     return ipos.map((ipo) => {
