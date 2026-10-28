@@ -53,6 +53,7 @@ class IpoItemModel {
   final String? priceBand;
   final double? issuePrice;
   final double? listingPrice;
+  final double? currentPrice;
   final int? lotSize;
   final DateTime? allotmentDate;
   final DateTime? listingDate;
@@ -75,6 +76,7 @@ class IpoItemModel {
     this.priceBand,
     this.issuePrice,
     this.listingPrice,
+    this.currentPrice,
     this.lotSize,
     this.allotmentDate,
     this.listingDate,
@@ -227,6 +229,9 @@ class IpoItemModel {
       listingPrice: json['listingPrice'] != null
           ? (json['listingPrice'] as num).toDouble()
           : null,
+      currentPrice: json['currentPrice'] != null
+          ? (json['currentPrice'] as num).toDouble()
+          : null,
       lotSize: lotSize,
       allotmentDate: json['allotmentDate'] != null ? DateTime.tryParse(json['allotmentDate']) : null,
       listingDate: json['listingDate'] != null ? DateTime.tryParse(json['listingDate']) : null,
@@ -251,6 +256,7 @@ class IpoItemModel {
     String? priceBand,
     double? issuePrice,
     double? listingPrice,
+    double? currentPrice,
     int? lotSize,
     DateTime? allotmentDate,
     DateTime? listingDate,
@@ -273,6 +279,7 @@ class IpoItemModel {
       priceBand: priceBand ?? this.priceBand,
       issuePrice: issuePrice ?? this.issuePrice,
       listingPrice: listingPrice ?? this.listingPrice,
+      currentPrice: currentPrice ?? this.currentPrice,
       lotSize: lotSize ?? this.lotSize,
       allotmentDate: allotmentDate ?? this.allotmentDate,
       listingDate: listingDate ?? this.listingDate,
