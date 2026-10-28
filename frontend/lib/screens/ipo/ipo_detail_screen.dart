@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/ipo_model.dart';
+import '../../providers/ipo_provider.dart';
 import '../../providers/refresh_job_provider.dart';
 
 class IpoDetailScreen extends ConsumerStatefulWidget {
