@@ -166,4 +166,60 @@ void main() {
     // Return: (2,500 / 8,000) * 100 = 31.25%
     expect(state.totalAllottedReturnPercentage, 31.25);
   });
+
+  test('IpoListState sorts filtered IPOs with latest date at the top and defaults to MAINBOARD', () {
+    final olderIpo = IpoItemModel(
+      id: 'ipo-older',
+      name: 'Older Mainboard Ltd',
+      slug: 'older-mainboard-ltd',
+      issueType: 'MAINBOARD',
+      registrar: 'KFINTECH',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.pending,
+      listingDate: DateTime.parse('2026-10-10'),
+    );
+
+    final newerIpo = IpoItemModel(
+      id: 'ipo-newer',
+      name: 'Newer Mainboard Ltd',
+      slug: 'newer-mainboard-ltd',
+      issueType: 'MAINBOARD',
+      registrar: 'KFINTECH',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.allotted,
+      listingDate: DateTime.parse('2026-10-28'),
+    );
+
+    final smeIpo = IpoItemModel(
+      id: 'ipo-sme',
+      name: 'SME Tech Ltd',
+      slug: 'sme-tech-ltd',
+      issueType: 'SME',
+      registrar: 'KFINTECH',
+      officialVerificationUrl: '',
+      status: AllotmentStatusEnum.pending,
+      listingDate: DateTime.parse('2026-10-25'),
+    );
+
+    final state = IpoListState(
+      isLoading: false,
+      ipos: [olderIpo, newerIpo, smeIpo],
+    );
+
+    // Default tab is MAINBOARD
+    expect(state.selectedIssueType, 'MAINBOARD');
+    expect(state.filteredIpos.length, 2);
+
+    // Latest IPO (Oct 28) must be first, older (Oct 10) second
+    expect(state.filteredIpos.first.name, 'Newer Mainboard Ltd');
+    expect(state.filteredIpos.last.name, 'Older Mainboard Ltd');
+
+    // When switched to ALL, newest across all categories is at the top
+    final allState = state.copyWith(selectedIssueType: 'ALL');
+    expect(allState.filteredIpos.map((i) => i.name).toList(), [
+      'Newer Mainboard Ltd', // Oct 28
+      'SME Tech Ltd',        // Oct 25
+      'Older Mainboard Ltd', // Oct 10
+    ]);
+  });
 }

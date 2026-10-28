@@ -41,7 +41,6 @@ export class IpoService implements OnModuleInit {
       where: {
         slug: {
           in: [
-            'fusion-cx-limited',
             'technova-solutions-sme',
             'sollfege-smart-electronics',
           ],
@@ -64,6 +63,23 @@ export class IpoService implements OnModuleInit {
         closeDate: new Date('2026-10-23'),
         allotmentDate: new Date('2026-10-26'),
         listingDate: new Date('2026-10-28'),
+        registrar: 'KFINTECH',
+        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
+      },
+      {
+        externalId: 'KFIN_FUSIONCX_2026',
+        name: 'Fusion CX Limited',
+        slug: 'fusion-cx-limited',
+        issueType: IssueType.MAINBOARD,
+        priceBand: '₹275 - ₹289',
+        issuePrice: 289,
+        listingPrice: 305,
+        currentPrice: 274.40,
+        lotSize: 51,
+        openDate: new Date('2026-10-14'),
+        closeDate: new Date('2026-10-16'),
+        allotmentDate: new Date('2026-10-17'),
+        listingDate: new Date('2026-10-22'),
         registrar: 'KFINTECH',
         officialVerificationUrl: 'https://ipostatus.kfintech.com/',
       },
@@ -245,6 +261,13 @@ export class IpoService implements OnModuleInit {
             },
           }
         : undefined,
+    });
+
+    // Sort with latest IPOs at the top (by listingDate -> allotmentDate -> closeDate -> openDate -> createdAt)
+    ipos.sort((a, b) => {
+      const timeA = (a.listingDate || a.allotmentDate || a.closeDate || a.openDate || a.createdAt)?.getTime() || 0;
+      const timeB = (b.listingDate || b.allotmentDate || b.closeDate || b.openDate || b.createdAt)?.getTime() || 0;
+      return timeB - timeA;
     });
 
     return ipos.map((ipo) => {

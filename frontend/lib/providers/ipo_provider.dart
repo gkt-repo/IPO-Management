@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/api/api_client.dart';
 import '../core/constants/api_constants.dart';
 import '../core/models/ipo_model.dart';
@@ -9,7 +11,7 @@ class IpoListState {
   final List<IpoItemModel> ipos;
   final DashboardSummaryModel? summary;
   final String? errorMessage;
-  final String selectedIssueType; // 'ALL', 'MAINBOARD', 'SME'
+  final String selectedIssueType; // 'MAINBOARD', 'SME', 'ALL'
   final String selectedStatusFilter; // 'ALL', 'ALLOTTED', 'NOT_ALLOTTED', 'PENDING'
   final String searchQuery;
 
@@ -18,7 +20,7 @@ class IpoListState {
     required this.ipos,
     this.summary,
     this.errorMessage,
-    this.selectedIssueType = 'ALL',
+    this.selectedIssueType = 'MAINBOARD',
     this.selectedStatusFilter = 'ALL',
     this.searchQuery = '',
   });
@@ -26,10 +28,11 @@ class IpoListState {
   factory IpoListState.initial() => IpoListState(
         isLoading: false,
         ipos: [],
+        selectedIssueType: 'MAINBOARD',
       );
 
   List<IpoItemModel> get filteredIpos {
-    return ipos.where((ipo) {
+    final result = ipos.where((ipo) {
       if (selectedIssueType != 'ALL' && ipo.issueType != selectedIssueType) {
         return false;
       }
@@ -47,11 +50,27 @@ class IpoListState {
       }
       return true;
     }).toList();
+
+    // Sort latest IPOs at the top (listingDate -> allotmentDate -> closeDate -> openDate)
+    result.sort((a, b) {
+      final dateA = a.listingDate ?? a.allotmentDate ?? a.closeDate ?? a.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final dateB = b.listingDate ?? b.allotmentDate ?? b.closeDate ?? b.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return dateB.compareTo(dateA);
+    });
+
+    return result;
   }
 
-  /// List of all allotted IPOs regardless of current filter
-  List<IpoItemModel> get allottedIpos =>
-      ipos.where((ipo) => ipo.status == AllotmentStatusEnum.allotted).toList();
+  /// List of all allotted IPOs regardless of current filter, latest first
+  List<IpoItemModel> get allottedIpos {
+    final list = ipos.where((ipo) => ipo.status == AllotmentStatusEnum.allotted).toList();
+    list.sort((a, b) {
+      final dateA = a.listingDate ?? a.allotmentDate ?? a.closeDate ?? a.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final dateB = b.listingDate ?? b.allotmentDate ?? b.closeDate ?? b.openDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return dateB.compareTo(dateA);
+    });
+    return list;
+  }
 
   /// Total profit across all allotted IPOs based on shares allotted
   double get totalAllottedProfit {
@@ -127,6 +146,7 @@ class IpoListState {
 
 class IpoListNotifier extends Notifier<IpoListState> {
   final ApiClient _apiClient = ApiClient();
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   @override
   IpoListState build() {
@@ -134,7 +154,30 @@ class IpoListNotifier extends Notifier<IpoListState> {
   }
 
   Future<void> fetchIposAndSummary({bool silent = false}) async {
-    if (!silent) {
+    // Fast local database cache: load instantly if in-memory list is empty
+    if (state.ipos.isEmpty) {
+      try {
+        final cachedIposRaw = await _storage.read(key: 'cached_ipos_list');
+        final cachedSummaryRaw = await _storage.read(key: 'cached_dashboard_summary');
+        if (cachedIposRaw != null && cachedIposRaw.isNotEmpty) {
+          final ipoJson = jsonDecode(cachedIposRaw) as List;
+          final cachedList = ipoJson.map((i) => IpoItemModel.fromJson(i)).toList();
+          DashboardSummaryModel? cachedSummary;
+          if (cachedSummaryRaw != null && cachedSummaryRaw.isNotEmpty) {
+            cachedSummary = DashboardSummaryModel.fromJson(jsonDecode(cachedSummaryRaw));
+          }
+          state = state.copyWith(
+            isLoading: false,
+            ipos: cachedList,
+            summary: cachedSummary,
+          );
+        }
+      } catch (_) {
+        // Fallback silently to network fetch
+      }
+    }
+
+    if (!silent && state.ipos.isEmpty) {
       state = state.copyWith(isLoading: true, errorMessage: null);
     }
 
@@ -150,11 +193,18 @@ class IpoListNotifier extends Notifier<IpoListState> {
         ipos: list,
         summary: summary,
       );
+
+      // Persist to local database cache for instant 0ms startup
+      _storage.write(key: 'cached_dashboard_summary', value: jsonEncode(summaryRes.data)).catchError((_) {});
+      _storage.write(key: 'cached_ipos_list', value: jsonEncode(ipoRes.data)).catchError((_) {});
     } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: 'Failed to load IPO data',
-      );
+      // Only set error message if no local cache is available
+      if (state.ipos.isEmpty) {
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage: 'Failed to load IPO data',
+        );
+      }
     }
   }
 

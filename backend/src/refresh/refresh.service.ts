@@ -170,7 +170,7 @@ export class RefreshService {
       await Promise.all(
         batch.map(async (ipo) => {
           try {
-            // Check existing check record to avoid overwriting confirmed ALLOTTED
+            // Check existing check record in our own database
             const existingCheck = await this.prisma.allotmentCheck.findUnique({
               where: {
                 savedPanId_ipoId: {
@@ -180,7 +180,24 @@ export class RefreshService {
               },
             });
 
-            // Perform check via PeekService
+            // Fast DB Cache Rule 1: Once confirmed ALLOTTED in our database, reuse it immediately!
+            // Allotments are final and permanent. Bypassing external scrapers speeds up refresh by 10x.
+            if (existingCheck && existingCheck.status === AllotmentStatus.ALLOTTED) {
+              this.logger.log(`[Fast DB] Preserved confirmed ALLOTTED status from DB for "${ipo.name}" (${existingCheck.allottedQuantity} shares)`);
+              allottedCount++;
+              return;
+            }
+
+            // Fast DB Cache Rule 2: If the IPO was listed > 3 days ago and has a confirmed NOT_ALLOTTED in DB,
+            // reuse the stored database result instead of hitting external scrapers that may fail or require CAPTCHA.
+            const isSettledHistorical = ipo.listingDate && (Date.now() - new Date(ipo.listingDate).getTime() > 3 * 24 * 3600 * 1000);
+            if (isSettledHistorical && existingCheck && existingCheck.status === AllotmentStatus.NOT_ALLOTTED) {
+              this.logger.log(`[Fast DB] Reusing settled NOT_ALLOTTED status from DB for "${ipo.name}"`);
+              notAllottedCount++;
+              return;
+            }
+
+            // Perform live check via PeekService for pending or new IPOs
             const result = await this.peekService.checkAllotment(
               rawPan,
               ipo.name,

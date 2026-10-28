@@ -652,66 +652,39 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               const SizedBox(height: 14),
 
-              // Summary Metrics Grid
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                childAspectRatio: 2.1,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
+              // Summary Metrics: Focused strictly on Allotted and Pending
+              Row(
                 children: [
-                  _buildSummaryCard(
-                    title: 'Allotted',
-                    count: summary?.allottedCount ?? 0,
-                    color: AppColors.success,
-                    icon: Icons.check_circle_outline,
-                    isSelected: ipoState.selectedStatusFilter == 'ALLOTTED',
-                    onTap: () {
-                      final current = ipoState.selectedStatusFilter;
-                      ref.read(ipoListProvider.notifier).setStatusFilter(
-                        current == 'ALLOTTED' ? 'ALL' : 'ALLOTTED',
-                      );
-                    },
+                  Expanded(
+                    child: _buildSummaryCard(
+                      title: 'Allotted',
+                      count: summary?.allottedCount ?? 0,
+                      color: AppColors.success,
+                      icon: Icons.check_circle_outline,
+                      isSelected: ipoState.selectedStatusFilter == 'ALLOTTED',
+                      onTap: () {
+                        final current = ipoState.selectedStatusFilter;
+                        ref.read(ipoListProvider.notifier).setStatusFilter(
+                          current == 'ALLOTTED' ? 'ALL' : 'ALLOTTED',
+                        );
+                      },
+                    ),
                   ),
-                  _buildSummaryCard(
-                    title: 'Not Allotted',
-                    count: summary?.notAllottedCount ?? 0,
-                    color: AppColors.neutral,
-                    icon: Icons.cancel_outlined,
-                    isSelected: ipoState.selectedStatusFilter == 'NOT_ALLOTTED',
-                    onTap: () {
-                      final current = ipoState.selectedStatusFilter;
-                      ref.read(ipoListProvider.notifier).setStatusFilter(
-                        current == 'NOT_ALLOTTED' ? 'ALL' : 'NOT_ALLOTTED',
-                      );
-                    },
-                  ),
-                  _buildSummaryCard(
-                    title: 'Pending',
-                    count: summary?.pendingCount ?? 0,
-                    color: AppColors.warning,
-                    icon: Icons.hourglass_empty_rounded,
-                    isSelected: ipoState.selectedStatusFilter == 'PENDING',
-                    onTap: () {
-                      final current = ipoState.selectedStatusFilter;
-                      ref.read(ipoListProvider.notifier).setStatusFilter(
-                        current == 'PENDING' ? 'ALL' : 'PENDING',
-                      );
-                    },
-                  ),
-                  _buildSummaryCard(
-                    title: 'Failed Checks',
-                    count: summary?.lookupFailedCount ?? 0,
-                    color: AppColors.error,
-                    icon: Icons.error_outline,
-                    isSelected: ipoState.selectedStatusFilter == 'LOOKUP_FAILED',
-                    onTap: () {
-                      final current = ipoState.selectedStatusFilter;
-                      ref.read(ipoListProvider.notifier).setStatusFilter(
-                        current == 'LOOKUP_FAILED' ? 'ALL' : 'LOOKUP_FAILED',
-                      );
-                    },
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildSummaryCard(
+                      title: 'Pending',
+                      count: summary?.pendingCount ?? 0,
+                      color: AppColors.warning,
+                      icon: Icons.hourglass_empty_rounded,
+                      isSelected: ipoState.selectedStatusFilter == 'PENDING',
+                      onTap: () {
+                        final current = ipoState.selectedStatusFilter;
+                        ref.read(ipoListProvider.notifier).setStatusFilter(
+                          current == 'PENDING' ? 'ALL' : 'PENDING',
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -793,19 +766,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               const SizedBox(height: 12),
 
-              // Issue Type Filter Chips
+              // Issue Type Filter Chips: 1st Mainboard, 2nd SME, 3rd All
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    FilterChip(
-                      label: const Text('All Issues'),
-                      selected: ipoState.selectedIssueType == 'ALL',
-                      onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('ALL'),
-                      selectedColor: AppColors.primary.withValues(alpha: 0.15),
-                      checkmarkColor: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
                     FilterChip(
                       label: const Text('Mainboard'),
                       selected: ipoState.selectedIssueType == 'MAINBOARD',
@@ -815,9 +780,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                     const SizedBox(width: 8),
                     FilterChip(
-                      label: const Text('SME IPOs'),
+                      label: const Text('SME'),
                       selected: ipoState.selectedIssueType == 'SME',
                       onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('SME'),
+                      selectedColor: AppColors.primary.withValues(alpha: 0.15),
+                      checkmarkColor: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text('All Issues'),
+                      selected: ipoState.selectedIssueType == 'ALL',
+                      onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('ALL'),
                       selectedColor: AppColors.primary.withValues(alpha: 0.15),
                       checkmarkColor: AppColors.primary,
                     ),
