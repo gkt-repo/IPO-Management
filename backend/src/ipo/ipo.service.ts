@@ -67,7 +67,7 @@ export class IpoService implements OnModuleInit {
         officialVerificationUrl: 'https://ipostatus.kfintech.com/',
       },
       {
-        externalId: 'KFIN_FUSIONCX_2026',
+        externalId: '32261845640',
         name: 'Fusion CX Limited',
         slug: 'fusion-cx-limited',
         issueType: IssueType.MAINBOARD,
@@ -157,6 +157,7 @@ export class IpoService implements OnModuleInit {
       await this.prisma.iPO.upsert({
         where: { slug: item.slug },
         update: {
+          externalId: item.externalId,
           issuePrice: item.issuePrice,
           listingPrice: item.listingPrice,
           priceBand: item.priceBand,

@@ -48,8 +48,29 @@ export class RefreshService {
       };
     }
 
-    // 3. Check cooldown unless force is true
-    if (!force) {
+    // 3. Fetch ONLY IPOs marked as applied by this user that are NOT already ALLOTTED
+    // Rule: "do not check again for alloated one , once allowted then it is always allowted"
+    // Rule: "if any one is marked for applied , and that one was lookup failed or pending , then on all refresh the backend try to get data (update) until it shows"
+    const appliedChecks = await this.prisma.allotmentCheck.findMany({
+      where: {
+        savedPanId: savedPan.id,
+        hasApplied: true,
+        status: { not: AllotmentStatus.ALLOTTED },
+      },
+      include: { ipo: true },
+    });
+
+    const checks = appliedChecks || [];
+    const eligibleIpos = checks
+      .map((c) => c.ipo)
+      .filter((ipo) => ipo && ipo.isActive);
+
+    // If all applied IPOs are already settled and up to date, check cooldown
+    const hasUnresolvedChecks = checks.some(
+      (c) => c.status === AllotmentStatus.LOOKUP_FAILED || c.status === AllotmentStatus.PENDING,
+    );
+
+    if (!force && !hasUnresolvedChecks) {
       const lastCompletedJob = await this.prisma.refreshJob.findFirst({
         where: {
           userId,
@@ -71,22 +92,6 @@ export class RefreshService {
         }
       }
     }
-
-    // 4. Fetch ONLY IPOs marked as applied by this user that are NOT already ALLOTTED
-    // Rule: "do not check again for alloated one , once allowted then it is always allowted"
-    // Rule: "lets add ia marker after tapping ipo names : i have applied , and then the only scan marked one , nothing else"
-    const appliedChecks = await this.prisma.allotmentCheck.findMany({
-      where: {
-        savedPanId: savedPan.id,
-        hasApplied: true,
-        status: { not: AllotmentStatus.ALLOTTED },
-      },
-      include: { ipo: true },
-    });
-
-    const eligibleIpos = appliedChecks
-      .map((c) => c.ipo)
-      .filter((ipo) => ipo && ipo.isActive);
 
     if (eligibleIpos.length === 0) {
       const completedJob = await this.prisma.refreshJob.create({

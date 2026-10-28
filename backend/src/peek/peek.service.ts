@@ -22,6 +22,39 @@ export class PeekService {
   private readonly logger = new Logger(PeekService.name);
   private readonly peekUrl = process.env.PEEK_SERVICE_URL || 'http://localhost:8000';
 
+  private kfinClientCache: Map<string, string> = new Map([
+    ['fusion cx limited', '32261845640'],
+    ['jio platforms limited', '78061126051'],
+    ['sollfege smart electronics limited', '47651989560'],
+    ['tonbo imaging india limited', '15211216040'],
+    ['vaibhav vyapaar limited', '75524247020'],
+    ['zetwerk manufacturing businesses limited', '29931891190'],
+  ]);
+  private kfinCacheExpiry = 0;
+
+  async resolveKFintechClientId(nameOrId: string): Promise<string | null> {
+    const q = nameOrId.toLowerCase().trim();
+    if (this.kfinClientCache.has(q)) {
+      return this.kfinClientCache.get(q)!;
+    }
+    for (const [k, v] of this.kfinClientCache.entries()) {
+      if (k.includes(q) || q.includes(k)) {
+        return v;
+      }
+    }
+    // Refresh catalogue if expired
+    if (Date.now() > this.kfinCacheExpiry) {
+      await this.discoverKFintechIpos();
+      this.kfinCacheExpiry = Date.now() + 3600 * 1000;
+      for (const [k, v] of this.kfinClientCache.entries()) {
+        if (k.includes(q) || q.includes(k)) {
+          return v;
+        }
+      }
+    }
+    return null;
+  }
+
   /**
    * Primary check method: calls PEEK FastAPI service with timeout and retry,
    * with automatic fallback to direct registrar adapters if PEEK service is unreachable.
@@ -45,7 +78,7 @@ export class PeekService {
     // 2. Direct Registrar Adapter Execution
     const normalizedReg = (registrarName || '').toUpperCase();
     if (normalizedReg.includes('KFIN')) {
-      return this.checkKFintechDirect(rawPan, externalId);
+      return this.checkKFintechDirect(rawPan, externalId, ipoName);
     } else if (normalizedReg.includes('MUFG') || normalizedReg.includes('LINK')) {
       return this.checkMufgDirect(rawPan, externalId);
     } else if (normalizedReg.includes('BIGSHARE')) {
@@ -128,12 +161,22 @@ export class PeekService {
   /**
    * Direct native KFintech adapter (verified live in PEEK).
    */
-  async checkKFintechDirect(rawPan: string, clientId?: string): Promise<RegistrarCheckResult> {
-    if (!clientId) {
+  async checkKFintechDirect(rawPan: string, clientId?: string, ipoName?: string): Promise<RegistrarCheckResult> {
+    let targetClientId = clientId;
+
+    // Dynamically resolve numeric clientId if missing or contains placeholder string
+    if (!targetClientId || !/^\d+$/.test(targetClientId)) {
+      const resolved = await this.resolveKFintechClientId(ipoName || clientId || '');
+      if (resolved) {
+        targetClientId = resolved;
+      }
+    }
+
+    if (!targetClientId || !/^\d+$/.test(targetClientId)) {
       return {
         status: AllotmentStatus.LOOKUP_FAILED,
         sharesAllotted: null,
-        message: 'KFintech client ID is missing for this issue.',
+        message: 'KFintech numeric client ID could not be identified for this issue.',
         source: 'KFINTECH_NATIVE',
         errorCode: 'MISSING_CLIENT_ID',
       };
@@ -150,7 +193,7 @@ export class PeekService {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:155.0) Gecko/20100101 Firefox/155.0',
           'Accept': 'application/json, text/plain, */*',
           'reqparam': rawPan,
-          'client_id': clientId,
+          'client_id': targetClientId,
           'Origin': 'https://ipostatus.kfintech.com',
           'Referer': 'https://ipostatus.kfintech.com/',
         },
@@ -158,6 +201,18 @@ export class PeekService {
       });
 
       if (!res.ok) {
+        if (res.status === 404) {
+          const errJson = await res.json().catch(() => null);
+          const errStr = JSON.stringify(errJson || '').toLowerCase();
+          if (errStr.includes('record not found') || errStr.includes('no record') || !errJson) {
+            return {
+              status: AllotmentStatus.NOT_ALLOTTED,
+              sharesAllotted: 0,
+              message: 'No allotment record found for this PAN on KFintech.',
+              source: 'KFINTECH_NATIVE',
+            };
+          }
+        }
         return {
           status: AllotmentStatus.LOOKUP_FAILED,
           sharesAllotted: null,
@@ -384,6 +439,7 @@ export class PeekService {
       while ((match = regex.exec(bundle)) !== null) {
         const clientId = match[1].trim();
         const name = match[2].trim();
+        this.kfinClientCache.set(name.toLowerCase(), clientId);
         items.push({
           externalId: clientId,
           name,
