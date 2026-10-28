@@ -278,7 +278,11 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
               listingPrice != null ? currencyFormatter.format(listingPrice) : 'Awaiting Listing',
             ),
             if (invested != null) _buildDetailRow('Total Invested Amount', currencyFormatter.format(invested)),
-            if (currentValue != null) _buildDetailRow('Current Listed Value', currencyFormatter.format(currentValue)),
+            if (currentValue != null) _buildDetailRow('Listing Day Value', currencyFormatter.format(currentValue)),
+            if (_ipo!.currentPrice != null) ...[
+              _buildDetailRow('Current Market Price (CMP)', '₹${_ipo!.currentPrice!.toStringAsFixed(2)}'),
+              _buildDetailRow('Current Holding Value', currencyFormatter.format(_ipo!.currentPrice! * shares)),
+            ],
           ],
         ),
       ),

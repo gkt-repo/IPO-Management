@@ -103,8 +103,31 @@ export class MarketPriceService {
       if (!result) return null;
 
       const meta = result.meta || {};
-      const opens: (number | null)[] = result.indicators?.quote?.[0]?.open || [];
-      const firstOpen = opens.find((o) => o != null && o > 0);
+      const quotes = result.indicators?.quote?.[0];
+      const opens: (number | null)[] = quotes?.open || [];
+      const volumes: (number | null)[] = quotes?.volume || [];
+
+      // Find first trade candle with executed trade volume (> 0).
+      // Indian exchanges put the base/issue price at the 9:15-9:20 pre-open reference with volume 0,
+      // while the actual discovered listing price trades at the 9:45-10:00 opening auction with real volume.
+      let firstOpen: number | null = null;
+      for (let i = 0; i < opens.length; i++) {
+        const o = opens[i];
+        const v = volumes[i];
+        if (o != null && o > 0 && v != null && v > 0) {
+          firstOpen = o;
+          break;
+        }
+      }
+
+      // Fallback: check meta.chartPreviousClose or first non-null open
+      if (!firstOpen) {
+        if (meta.chartPreviousClose && meta.chartPreviousClose > 0) {
+          firstOpen = meta.chartPreviousClose;
+        } else {
+          firstOpen = opens.find((o) => o != null && o > 0) || null;
+        }
+      }
 
       if (!firstOpen) {
         this.logger.debug(`No valid opening price candles found for ${symbol}`);

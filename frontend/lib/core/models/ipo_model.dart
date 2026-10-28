@@ -124,6 +124,7 @@ class IpoItemModel {
   static double? _fallbackListingPrice(String? slug, String? name) {
     final s = (slug ?? '').toLowerCase();
     final n = (name ?? '').toLowerCase();
+    if (s.contains('fusion') || n.contains('fusion')) return 305.0;
     if (s.contains('jio') || n.contains('jio')) return 1358.0;
     if (s.contains('paras') || n.contains('paras')) return 720.0;
     if (s.contains('swiggy') || n.contains('swiggy')) return 420.0;
@@ -136,6 +137,9 @@ class IpoItemModel {
   double? get effectiveIssuePrice {
     final s = slug.toLowerCase();
     final n = name.toLowerCase();
+    if (s.contains('fusion') || n.contains('fusion')) {
+      if (issuePrice == null) return 289.0;
+    }
     if (s.contains('jio') || n.contains('jio')) {
       if (issuePrice == null || issuePrice == 475.0) return 1119.0;
     }
@@ -146,6 +150,9 @@ class IpoItemModel {
   double? get effectiveListingPrice {
     final s = slug.toLowerCase();
     final n = name.toLowerCase();
+    if (s.contains('fusion') || n.contains('fusion')) {
+      if (listingPrice == null || listingPrice == 289.0) return 305.0;
+    }
     if (s.contains('jio') || n.contains('jio')) {
       if (listingPrice == null || listingPrice == 615.0) return 1358.0;
     }
