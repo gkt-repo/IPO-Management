@@ -99,3 +99,43 @@ cd backend && npm test
 # Flutter analyzer & tests
 cd frontend && flutter analyze && flutter test
 ```
+
+## IPO listing schedules
+
+The Mainboard/SME selector is independent of the Open, Closed and Upcoming tabs.
+`GET /api/ipo?issueType=SME&status=OPEN` filters bidding status; the response's
+`status` remains the user's allotment status and `lifecycleStatus` describes bidding.
+Open issues sort by closing time, upcoming issues by opening time, and closed issues
+by most recent closing date. Allotment dates never determine bidding status.
+
+Legacy UTC-midnight `openDate`/`closeDate` values represent Indian calendar dates.
+They use 10 AM IST opening and 5 PM IST Mainboard / 4 PM IST SME final closing.
+Explicit non-midnight timestamps override these defaults (including extensions).
+See [NSE bidding hours](https://www.nseindia.com/static/products-services/initial-public-offerings-book-building)
+and [NSE SME closing rules](https://www.nseindia.com/static/trade/e-ipo-faqs).
+These tabs describe the overall subscription period, not an intraday trading session;
+broker/category deadlines can differ. The API also returns `biddingOpensAt` and
+`biddingClosesAt`; clients recalculate status when these boundaries pass and on resume.
+
+Registrar discovery currently provides names/identifiers, **not verified schedules**.
+Incomplete schedules are shown separately as “Dates unavailable”, unless closing or
+listing evidence establishes that bidding is closed. Populate verified board and
+schedule data before expecting a newly discovered issue in a dated tab. Discovery's
+name-based SME detection also needs verified issue-type data for names without “SME”.
+
+Startup no longer inserts sample IPOs or overwrites all catalogue dates and quotes.
+It repairs only exact matches for four known incorrect legacy seed schedules:
+
+| IPO | Correct opening–closing dates | Source |
+| --- | --- | --- |
+| Swiggy | 6–8 November 2024 | [Issuer prospectus](https://www.swiggy.com/corporate/wp-content/uploads/2024/11/Swiggy-Limited-Prospectus_Final-filing-version.pdf) |
+| Ola Electric | 2–6 August 2024 | [Issuer allotment notice](https://cdn.olaelectric.com/sites/evdp/pages/investor/basisofallotment_ola_approved_ad.pdf) |
+| Tata Technologies | 22–24 November 2023 | [NSE issue information](https://www.nseindia.com/market-data/issue-information?series=EQ&symbol=TATATECH&type=Active) |
+| NTPC Green Energy | 19–22 November 2024 | [Issuer prospectus](https://www.ngel.in/public/investors/Prospectus.pdf) |
+
+For those exact legacy rows, unsourced seeded allotment/listing milestones and market
+quotes are cleared; exchange price sync can repopulate quotes. Other imported rows,
+IDs and user allotment history are preserved. Remaining catalogue dates still depend
+on their source and have not been independently verified by this repair. Restart the
+updated backend and refresh the client to apply the data corrections; no schema
+migration is required.

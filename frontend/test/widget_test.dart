@@ -25,6 +25,7 @@ void main() {
       'closeDate': '2026-09-12T00:00:00.000Z',
       'priceBand': '₹650 - ₹693',
       'lotSize': 21,
+      'listingPrice': 720.0,
       'registrar': 'MUFG_INTIME',
       'officialVerificationUrl': 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
       'status': 'ALLOTTED',
@@ -144,6 +145,7 @@ void main() {
       isLoading: false,
       ipos: [ipo1, ipo2, ipo3],
       selectedStatusFilter: 'ALLOTTED',
+      selectedLifecycle: IpoLifecycle.closed,
     );
 
     expect(state.allottedIpos.length, 2);
@@ -205,23 +207,19 @@ void main() {
     final state = IpoListState(
       isLoading: false,
       ipos: [olderIpo, newerIpo, smeIpo],
+      selectedLifecycle: IpoLifecycle.closed,
     );
 
     // Default tab is MAINBOARD
     expect(state.selectedIssueType, 'MAINBOARD');
-    expect(state.filteredIpos.length, 2);
+    expect(state.filteredIposAt(DateTime.utc(2026, 10, 29)).length, 2);
 
     // Latest IPO (Oct 28) must be first, older (Oct 10) second
-    expect(state.filteredIpos.first.name, 'Newer Mainboard Ltd');
-    expect(state.filteredIpos.last.name, 'Older Mainboard Ltd');
+    expect(state.filteredIposAt(DateTime.utc(2026, 10, 29)).first.name, 'Newer Mainboard Ltd');
+    expect(state.filteredIposAt(DateTime.utc(2026, 10, 29)).last.name, 'Older Mainboard Ltd');
 
-    // When switched to ALL, newest across all categories is at the top
-    final allState = state.copyWith(selectedIssueType: 'ALL');
-    expect(allState.filteredIpos.map((i) => i.name).toList(), [
-      'Newer Mainboard Ltd', // Oct 28
-      'SME Tech Ltd',        // Oct 25
-      'Older Mainboard Ltd', // Oct 10
-    ]);
+    final smeState = state.copyWith(selectedIssueType: 'SME');
+    expect(smeState.filteredIposAt(DateTime.utc(2026, 10, 29)).map((i) => i.name).toList(), ['SME Tech Ltd']);
   });
 
   test('IpoItemModel isUpcoming detects upcoming status correctly', () {
@@ -263,7 +261,8 @@ void main() {
       status: AllotmentStatusEnum.notApplied,
       isUpcomingExplicit: true,
     );
-    expect(explicitIpo.isUpcoming, true);
+    expect(explicitIpo.isUpcoming, false);
+    expect(explicitIpo.lifecycle, IpoLifecycle.unknown);
   });
 
   test('IpoListState filters and sorts UPCOMING IPOs with soonest first', () {
@@ -310,12 +309,11 @@ void main() {
     final state = IpoListState(
       isLoading: false,
       ipos: [pastIpo, laterUpcoming, soonUpcoming],
-      selectedIssueType: 'UPCOMING',
+      selectedIssueType: 'MAINBOARD',
+      selectedLifecycle: IpoLifecycle.upcoming,
     );
 
-    expect(state.filteredIpos.length, 2);
-    // Soonest upcoming (opens in 3 days) must be first, later upcoming (in 12 days) second
-    expect(state.filteredIpos.first.name, 'Opening Soon Ltd');
-    expect(state.filteredIpos.last.name, 'Opening Later SME Ltd');
+    expect(state.filteredIpos.map((i) => i.name).toList(), ['Opening Soon Ltd']);
+    expect(state.copyWith(selectedIssueType: 'SME').filteredIpos.map((i) => i.name).toList(), ['Opening Later SME Ltd']);
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,12 +17,54 @@ class DashboardScreen extends ConsumerStatefulWidget {
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsBindingObserver {
   final _searchController = TextEditingController();
+  Timer? _lifecycleTimer;
+
+  void _scheduleStatusUpdate(List<IpoItemModel> ipos) {
+    _lifecycleTimer?.cancel();
+    final now = DateTime.now();
+    final boundaries = ipos.expand((ipo) => [ipo.opensAt, ipo.closesAt, ipo.listingDate])
+        .whereType<DateTime>().where((date) => date.isAfter(now)).toList()..sort();
+    if (boundaries.isEmpty) return;
+    _lifecycleTimer = Timer(boundaries.first.difference(now) + const Duration(milliseconds: 10), () {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      setState(() {});
+      ref.read(ipoListProvider.notifier).fetchIposAndSummary(silent: true);
+    }
+  }
+
+  String _biddingLabel(IpoItemModel ipo) {
+    final lifecycle = ipo.lifecycle;
+    final date = lifecycle == IpoLifecycle.upcoming ? ipo.opensAt : ipo.closesAt;
+    if (date == null) return lifecycle == IpoLifecycle.closed ? 'Bidding closed' : 'Dates unavailable';
+    final prefix = lifecycle == IpoLifecycle.upcoming ? 'Opens' : lifecycle == IpoLifecycle.open ? 'Closes' : 'Closed';
+    return '$prefix ${DateFormat('d MMM yyyy, h:mm a').format(inIndia(date))} IST';
+  }
+
+  Widget _buildLifecycleBadge(IpoItemModel ipo) {
+    final color = switch (ipo.lifecycle) {
+      IpoLifecycle.open => AppColors.success,
+      IpoLifecycle.upcoming => AppColors.accent,
+      _ => AppColors.textSecondary,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(20)),
+      child: Text(ipo.lifecycle.label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // 1. Fetch cached IPO data and previously stored allotment results immediately
       ref.read(panProvider.notifier).fetchSavedPan();
@@ -34,6 +77,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _lifecycleTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -431,17 +476,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  Widget _buildStatusBadge(AllotmentStatusEnum status, int? shares, {bool isUpcoming = false}) {
+  Widget _buildStatusBadge(AllotmentStatusEnum status, int? shares) {
     Color bg;
     Color fg;
     String label;
 
-    if (isUpcoming && status == AllotmentStatusEnum.notApplied) {
-      bg = AppColors.accent.withValues(alpha: 0.12);
-      fg = AppColors.accent;
-      label = 'UPCOMING';
-    } else {
-      switch (status) {
+    switch (status) {
         case AllotmentStatusEnum.allotted:
           bg = AppColors.success.withValues(alpha: 0.12);
           fg = AppColors.success;
@@ -472,7 +512,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           fg = AppColors.textSecondary;
           label = 'NOT APPLIED';
           break;
-      }
     }
 
     return Container(
@@ -496,6 +535,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
     final summary = ipoState.summary;
     final filteredList = ipoState.filteredIpos;
+    _scheduleStatusUpdate(ipoState.ipos);
 
     return PopScope(
       canPop: false,
@@ -792,46 +832,68 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
               const SizedBox(height: 12),
 
-              // Issue Type Filter Chips: 1st Mainboard, 2nd SME, 3rd All, 4th Upcoming
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    FilterChip(
-                      label: const Text('Mainboard'),
-                      selected: ipoState.selectedIssueType == 'MAINBOARD',
-                      onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('MAINBOARD'),
-                      selectedColor: AppColors.primary.withValues(alpha: 0.15),
-                      checkmarkColor: AppColors.primary,
+              // Board selector and bidding status are independent filters.
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('IPOs', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(color: Colors.white, border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(10)),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: ipoState.selectedIssueType,
+                        borderRadius: BorderRadius.circular(12),
+                        items: const [
+                          DropdownMenuItem(value: 'MAINBOARD', child: Text('Mainboard')),
+                          DropdownMenuItem(value: 'SME', child: Text('SME')),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) ref.read(ipoListProvider.notifier).setIssueTypeFilter(value);
+                        },
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      label: const Text('SME'),
-                      selected: ipoState.selectedIssueType == 'SME',
-                      onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('SME'),
-                      selectedColor: AppColors.primary.withValues(alpha: 0.15),
-                      checkmarkColor: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      label: const Text('All'),
-                      selected: ipoState.selectedIssueType == 'ALL',
-                      onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('ALL'),
-                      selectedColor: AppColors.primary.withValues(alpha: 0.15),
-                      checkmarkColor: AppColors.primary,
-                    ),
-                    const SizedBox(width: 8),
-                    FilterChip(
-                      label: const Text('Upcoming'),
-                      selected: ipoState.selectedIssueType == 'UPCOMING',
-                      onSelected: (_) => ref.read(ipoListProvider.notifier).setIssueTypeFilter('UPCOMING'),
-                      selectedColor: AppColors.primary.withValues(alpha: 0.15),
-                      checkmarkColor: AppColors.primary,
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 12),
+              Row(
+                children: [IpoLifecycle.open, IpoLifecycle.closed, IpoLifecycle.upcoming].map((lifecycle) {
+                  final selected = ipoState.selectedLifecycle == lifecycle;
+                  return Expanded(
+                    child: Semantics(
+                      selected: selected,
+                      button: true,
+                      child: InkWell(
+                        onTap: () => ref.read(ipoListProvider.notifier).setLifecycleFilter(lifecycle),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          decoration: BoxDecoration(border: Border(bottom: BorderSide(
+                            color: selected ? AppColors.primary : AppColors.border,
+                            width: selected ? 2.5 : 1,
+                          ))),
+                          child: Text('${lifecycle.label} (${ipoState.lifecycleCount(lifecycle)})',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 13, fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                              color: selected ? AppColors.primary : AppColors.textSecondary)),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              const Text('Bidding schedule · India time (IST)',
+                style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
               const SizedBox(height: 16),
+              if (ipoState.errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(children: [
+                    Expanded(child: Text(ipoState.errorMessage!, style: const TextStyle(color: AppColors.error))),
+                    TextButton(onPressed: () => ref.read(ipoListProvider.notifier).fetchIposAndSummary(), child: const Text('Retry')),
+                  ]),
+                ),
 
               // IPO List View
               if (ipoState.isLoading && filteredList.isEmpty) ...[
@@ -852,59 +914,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ),
                   child: Column(
                     children: [
-                      Icon(
-                        ipoState.selectedStatusFilter == 'ALLOTTED'
-                            ? Icons.monetization_on_outlined
-                            : (ipoState.selectedIssueType == 'UPCOMING'
-                                ? Icons.calendar_month_outlined
-                                : Icons.inventory_2_outlined),
-                        size: 48,
-                        color: ipoState.selectedStatusFilter == 'ALLOTTED'
-                            ? AppColors.success
-                            : (ipoState.selectedIssueType == 'UPCOMING'
-                                ? AppColors.accent
-                                : AppColors.neutral),
-                      ),
+                      const Icon(Icons.event_note_outlined, size: 40, color: AppColors.textSecondary),
                       const SizedBox(height: 12),
-                      Text(
-                        ipoState.selectedStatusFilter == 'ALLOTTED'
-                            ? 'No Allotted IPOs Found'
-                            : (ipoState.selectedIssueType == 'UPCOMING'
-                                ? 'No Upcoming IPOs Found'
-                                : 'No IPOs found matching criteria'),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        ipoState.selectedStatusFilter == 'ALLOTTED'
-                            ? 'When an IPO is allotted to your linked PAN, its issued price, listed price, and total calculated profit will appear here.'
-                            : (ipoState.selectedIssueType == 'UPCOMING'
-                                ? 'Upcoming Mainboard and SME IPOs will appear here when their bidding schedules are announced.'
-                                : 'Try adjusting your search query or status filter.'),
+                      Text('No ${ipoState.selectedLifecycle.label.toLowerCase()} ${ipoState.selectedIssueType == 'SME' ? 'SME' : 'mainboard'} IPOs',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
-                      ),
-                      if (ipoState.selectedStatusFilter != 'ALL') ...[
-                        const SizedBox(height: 14),
-                        OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            side: const BorderSide(color: AppColors.primary),
-                          ),
-                          onPressed: () => ref.read(ipoListProvider.notifier).setStatusFilter('ALL'),
-                          child: const Text('Show All IPOs'),
-                        ),
-                      ] else if (ipoState.selectedIssueType != 'ALL') ...[
-                        const SizedBox(height: 14),
-                        OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            side: const BorderSide(color: AppColors.primary),
-                          ),
-                          onPressed: () => ref.read(ipoListProvider.notifier).setIssueTypeFilter('ALL'),
-                          child: const Text('Show All Issues'),
-                        ),
-                      ],
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                      const SizedBox(height: 8),
+                      Text(ipoState.searchQuery.trim().isNotEmpty || ipoState.selectedStatusFilter != 'ALL'
+                        ? 'Try clearing your search or allotment filter.'
+                        : 'Try another tab or switch between Mainboard and SME.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                      if (ipoState.searchQuery.trim().isNotEmpty || ipoState.selectedStatusFilter != 'ALL')
+                        TextButton(onPressed: () {
+                          _searchController.clear();
+                          ref.read(ipoListProvider.notifier).setSearchQuery('');
+                          ref.read(ipoListProvider.notifier).setStatusFilter('ALL');
+                        }, child: const Text('Clear filters')),
                     ],
                   ),
                 ),
@@ -978,40 +1004,31 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 ],
                               ),
                               const Divider(height: 20),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 10,
+                                crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      if (ipo.priceBand != null)
-                                        Text(
-                                          'Price: ${ipo.priceBand}',
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
-                                        ),
-                                      if (ipo.openDate != null && ipo.closeDate != null)
-                                        Text(
-                                          'Bidding: ${DateFormat('dd MMM').format(ipo.openDate!)} - ${DateFormat('dd MMM yyyy').format(ipo.closeDate!)}',
-                                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                                        )
-                                      else if (ipo.openDate != null)
-                                        Text(
-                                          'Opens: ${DateFormat('dd MMM yyyy').format(ipo.openDate!)}',
-                                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                                        )
-                                      else if (ipo.allotmentDate != null)
-                                        Text(
-                                          'Allotment: ${DateFormat('dd MMM yyyy').format(ipo.allotmentDate!)}',
-                                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                                        ),
-                                    ],
-                                  ),
-                                  _buildStatusBadge(ipo.status, ipo.allottedQuantity, isUpcoming: ipo.isUpcoming),
+                                  _buildLifecycleBadge(ipo),
+                                  Text(_biddingLabel(ipo), style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                                 ],
                               ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 20,
+                                runSpacing: 8,
+                                children: [
+                                  Text('Price band  ${ipo.priceBand ?? '—'}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                                  Text('Lot size  ${ipo.lotSize ?? '—'}', style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                                ],
+                              ),
+                              if (ipo.hasApplied) ...[
+                                const SizedBox(height: 12),
+                                _buildStatusBadge(ipo.status, ipo.allottedQuantity),
+                              ],
                               if (ipo.status == AllotmentStatusEnum.allotted) ...[
                                 _buildAllotmentProfitCard(ipo),
-                              ] else ...[
+                              ] else if (!ipo.isUpcoming) ...[
                                 const SizedBox(height: 12),
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1090,6 +1107,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       ),
                     );
                   },
+                ),
+              ],
+              if (ipoState.unscheduledIpos.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  title: Text('Dates unavailable (${ipoState.unscheduledIpos.length})', style: const TextStyle(fontSize: 14)),
+                  subtitle: const Text('These IPOs do not have a complete bidding schedule.', style: TextStyle(fontSize: 12)),
+                  children: ipoState.unscheduledIpos.map((ipo) => ListTile(
+                    title: Text(ipo.name),
+                    subtitle: const Text('Dates unavailable'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push('/ipo/${ipo.id}'),
+                  )).toList(),
                 ),
               ],
               const SizedBox(height: 80), // Padding for FloatingActionButton

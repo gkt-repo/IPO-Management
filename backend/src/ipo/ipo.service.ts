@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PeekService } from '../peek/peek.service';
 import { MarketPriceService } from './market-price.service';
 import { AllotmentStatus, IssueType } from '@prisma/client';
+import { biddingTime, ipoLifecycle } from './ipo-lifecycle';
 
 @Injectable()
 export class IpoService implements OnModuleInit {
@@ -16,9 +17,9 @@ export class IpoService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      await this.ensureSeedIpos();
+      await this.repairLegacySchedules();
     } catch (err: any) {
-      this.logger.warn(`Initial seed deferred: ${err.message}`);
+      this.logger.warn(`Legacy schedule repair deferred: ${err.message}`);
     }
 
     this.syncDynamicCatalogues().catch((err) => {
@@ -30,235 +31,25 @@ export class IpoService implements OnModuleInit {
     });
   }
 
-  /**
-   * Ensure standard recent Mainboard and SME Indian IPOs exist in DB.
-   */
-  async ensureSeedIpos() {
-    this.logger.log('Seeding / updating verified real-world Indian IPOs...');
-
-    // Clean up any old placeholder / mock test records from earlier templates
-    await this.prisma.iPO.deleteMany({
-      where: {
-        slug: {
-          in: [
-            'technova-solutions-sme',
-            'sollfege-smart-electronics',
-          ],
-        },
-      },
-    });
-
-    const seedData = [
-      {
-        externalId: '78061126051',
-        name: 'Jio Platforms Limited',
-        slug: 'jio-platforms-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹1,065 - ₹1,119',
-        issuePrice: 1119,
-        listingPrice: 1358,
-        currentPrice: 1362.80,
-        lotSize: 12,
-        openDate: new Date('2026-10-18'),
-        closeDate: new Date('2026-10-23'),
-        allotmentDate: new Date('2026-10-26'),
-        listingDate: new Date('2026-10-28'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
-      },
-      {
-        externalId: '32261845640',
-        name: 'Fusion CX Limited',
-        slug: 'fusion-cx-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹275 - ₹289',
-        issuePrice: 289,
-        listingPrice: 305,
-        currentPrice: 272.45,
-        lotSize: 51,
-        openDate: new Date('2026-10-14'),
-        closeDate: new Date('2026-10-16'),
-        allotmentDate: new Date('2026-10-17'),
-        listingDate: new Date('2026-10-22'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
-      },
-      {
-        externalId: 'BIG_SWIGGY_2026',
-        name: 'Swiggy Limited',
-        slug: 'swiggy-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹371 - ₹390',
-        issuePrice: 390,
-        listingPrice: 420,
-        currentPrice: 184.0,
-        lotSize: 38,
-        openDate: new Date('2026-10-01'),
-        closeDate: new Date('2026-10-05'),
-        allotmentDate: new Date('2026-10-07'),
-        listingDate: new Date('2026-10-10'),
-        registrar: 'BIGSHARE',
-        officialVerificationUrl: 'https://ipo.bigshareonline.com/IPO_Status.html',
-      },
-      {
-        externalId: '11968',
-        name: 'Paras Healthcare Limited',
-        slug: 'paras-healthcare-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹650 - ₹693',
-        issuePrice: 693,
-        listingPrice: 720,
-        currentPrice: 740.0,
-        lotSize: 21,
-        openDate: new Date('2026-09-10'),
-        closeDate: new Date('2026-09-12'),
-        allotmentDate: new Date('2026-09-15'),
-        listingDate: new Date('2026-09-18'),
-        registrar: 'MUFG_INTIME',
-        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
-      },
-      {
-        externalId: 'MUFG_OLAELEC',
-        name: 'Ola Electric Mobility Limited',
-        slug: 'ola-electric-mobility-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹72 - ₹76',
-        issuePrice: 76,
-        listingPrice: 76,
-        currentPrice: 35.80,
-        lotSize: 195,
-        openDate: new Date('2026-08-02'),
-        closeDate: new Date('2026-08-06'),
-        allotmentDate: new Date('2026-08-07'),
-        listingDate: new Date('2026-08-09'),
-        registrar: 'MUFG_INTIME',
-        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
-      },
-      {
-        externalId: 'MUFG_TATATECH',
-        name: 'Tata Technologies Limited',
-        slug: 'tata-technologies-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹475 - ₹500',
-        issuePrice: 500,
-        listingPrice: 1200,
-        currentPrice: 647.50,
-        lotSize: 30,
-        openDate: new Date('2026-05-10'),
-        closeDate: new Date('2026-05-14'),
-        allotmentDate: new Date('2026-05-16'),
-        listingDate: new Date('2026-05-20'),
-        registrar: 'MUFG_INTIME',
-        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
-      },
-      // Verified Upcoming Mainboard & SME Indian IPOs
-      {
-        externalId: 'KFIN_NTPCGREEN',
-        name: 'NTPC Green Energy Limited',
-        slug: 'ntpc-green-energy-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹102 - ₹108',
-        issuePrice: null,
-        listingPrice: null,
-        currentPrice: null,
-        lotSize: 138,
-        openDate: new Date('2026-11-04'),
-        closeDate: new Date('2026-11-07'),
-        allotmentDate: new Date('2026-11-08'),
-        listingDate: new Date('2026-11-12'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
-      },
-      {
-        externalId: '75524247020',
-        name: 'Vaibhav Vyapaar Limited',
-        slug: 'vaibhav-vyapaar-limited',
-        issueType: IssueType.SME,
-        priceBand: '₹145 - ₹152',
-        issuePrice: null,
-        listingPrice: null,
-        currentPrice: null,
-        lotSize: 1000,
-        openDate: new Date('2026-11-05'),
-        closeDate: new Date('2026-11-08'),
-        allotmentDate: new Date('2026-11-10'),
-        listingDate: new Date('2026-11-13'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
-      },
-      {
-        externalId: '29931891190',
-        name: 'Zetwerk Manufacturing Businesses Limited',
-        slug: 'zetwerk-manufacturing-businesses-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹320 - ₹340',
-        issuePrice: null,
-        listingPrice: null,
-        currentPrice: null,
-        lotSize: 44,
-        openDate: new Date('2026-11-10'),
-        closeDate: new Date('2026-11-14'),
-        allotmentDate: new Date('2026-11-17'),
-        listingDate: new Date('2026-11-20'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
-      },
-      {
-        externalId: 'MUFG_APEXSME',
-        name: 'Apex Cloud Automation SME Limited',
-        slug: 'apex-cloud-automation-sme-limited',
-        issueType: IssueType.SME,
-        priceBand: '₹85 - ₹90',
-        issuePrice: null,
-        listingPrice: null,
-        currentPrice: null,
-        lotSize: 1600,
-        openDate: new Date('2026-11-15'),
-        closeDate: new Date('2026-11-18'),
-        allotmentDate: new Date('2026-11-20'),
-        listingDate: new Date('2026-11-24'),
-        registrar: 'MUFG_INTIME',
-        officialVerificationUrl: 'https://in.mpms.mufg.com/Initial_Offer/IPO.aspx',
-      },
-      {
-        externalId: '15211216040',
-        name: 'Tonbo Imaging India Limited',
-        slug: 'tonbo-imaging-india-limited',
-        issueType: IssueType.MAINBOARD,
-        priceBand: '₹510 - ₹545',
-        issuePrice: null,
-        listingPrice: null,
-        currentPrice: null,
-        lotSize: 27,
-        openDate: new Date('2026-11-18'),
-        closeDate: new Date('2026-11-21'),
-        allotmentDate: new Date('2026-11-24'),
-        listingDate: new Date('2026-11-27'),
-        registrar: 'KFINTECH',
-        officialVerificationUrl: 'https://ipostatus.kfintech.com/',
-      },
+  /** Repair only exact legacy seed schedules; never overwrite imported schedules. */
+  async repairLegacySchedules() {
+    // Sources and the date-only timestamp convention are documented in README.md.
+    const corrections = [
+      ['swiggy-limited', '2026-10-01', '2026-10-05', '2024-11-06', '2024-11-08'],
+      ['ola-electric-mobility-limited', '2026-08-02', '2026-08-06', '2024-08-02', '2024-08-06'],
+      ['tata-technologies-limited', '2026-05-10', '2026-05-14', '2023-11-22', '2023-11-24'],
+      ['ntpc-green-energy-limited', '2026-11-04', '2026-11-07', '2024-11-19', '2024-11-22'],
     ];
-
-    for (const item of seedData) {
-      await this.prisma.iPO.upsert({
-        where: { slug: item.slug },
-        update: {
-          externalId: item.externalId,
-          issuePrice: item.issuePrice,
-          listingPrice: item.listingPrice,
-          currentPrice: item.currentPrice,
-          priceBand: item.priceBand,
-          lotSize: item.lotSize,
-          openDate: item.openDate,
-          closeDate: item.closeDate,
-          allotmentDate: item.allotmentDate,
-          listingDate: item.listingDate,
+    for (const [slug, oldOpen, oldClose, open, close] of corrections) {
+      await this.prisma.iPO.updateMany({
+        where: { slug, openDate: new Date(oldOpen), closeDate: new Date(oldClose) },
+        data: {
+          openDate: new Date(open), closeDate: new Date(close),
+          // Old seeded milestones and quotes were not sourced from an exchange.
+          allotmentDate: null, listingDate: null, listingPrice: null, currentPrice: null,
         },
-        create: item,
       });
     }
-
-    // Ensure all existing ALLOTTED checks are permanently marked as applied
     await this.prisma.allotmentCheck.updateMany({
       where: { status: AllotmentStatus.ALLOTTED },
       data: { hasApplied: true },
@@ -328,14 +119,6 @@ export class IpoService implements OnModuleInit {
 
     if (filter?.issueType && (filter.issueType === 'MAINBOARD' || filter.issueType === 'SME')) {
       whereClause.issueType = filter.issueType as IssueType;
-    } else if (filter?.issueType === 'UPCOMING') {
-      const now = new Date();
-      whereClause.OR = [
-        { openDate: { gt: now } },
-        { closeDate: { gte: new Date(now.getTime() - 24 * 3600 * 1000) } },
-        { allotmentDate: { gt: now } },
-      ];
-      whereClause.listingPrice = null;
     }
 
     if (filter?.search) {
@@ -368,39 +151,28 @@ export class IpoService implements OnModuleInit {
         : undefined,
     });
 
-    if (filter?.issueType === 'UPCOMING') {
-      ipos.sort((a, b) => {
-        const timeA = (a.openDate || a.closeDate || a.allotmentDate)?.getTime() || Number.MAX_SAFE_INTEGER;
-        const timeB = (b.openDate || b.closeDate || b.allotmentDate)?.getTime() || Number.MAX_SAFE_INTEGER;
-        if (timeA !== timeB) {
-          return timeA - timeB;
-        }
-        return (a.createdAt?.getTime() || 0) - (b.createdAt?.getTime() || 0);
-      });
-    } else {
-      // Sort with latest IPOs at the top (by listingDate -> allotmentDate -> closeDate -> openDate, then tiebreak by createdAt)
-      ipos.sort((a, b) => {
-        const timeA = (a.listingDate || a.allotmentDate || a.closeDate || a.openDate)?.getTime() || 0;
-        const timeB = (b.listingDate || b.allotmentDate || b.closeDate || b.openDate)?.getTime() || 0;
-        if (timeA !== timeB) {
-          return timeB - timeA;
-        }
-        return (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0);
-      });
-    }
-
     const now = new Date();
+    // Keep the legacy query parameter working, but with strict upcoming semantics.
+    const lifecycle = filter?.issueType === 'UPCOMING' ? 'UPCOMING' : filter?.status;
+    const matching = ipos.filter((ipo) =>
+      !['OPEN', 'CLOSED', 'UPCOMING'].includes(lifecycle ?? '') || ipoLifecycle(ipo, now) === lifecycle,
+    );
+    matching.sort((a, b) => {
+      const date = (ipo: typeof a) => lifecycle === 'UPCOMING'
+        ? biddingTime(ipo.openDate, 10)?.getTime()
+        : biddingTime(ipo.closeDate, ipo.issueType === 'SME' ? 16 : 17)?.getTime()
+          ?? ipo.listingDate?.getTime();
+      const ascending = lifecycle === 'OPEN' || lifecycle === 'UPCOMING';
+      const aTime = date(a) ?? (ascending ? Number.MAX_SAFE_INTEGER : 0);
+      const bTime = date(b) ?? (ascending ? Number.MAX_SAFE_INTEGER : 0);
+      return (ascending ? aTime - bTime : bTime - aTime) || a.name.localeCompare(b.name);
+    });
 
-    return ipos.map((ipo) => {
+    return matching.map((ipo) => {
       const check = ipo.checks?.[0];
       const isAllotted = check?.status === AllotmentStatus.ALLOTTED;
       const hasApplied = isAllotted || (check?.hasApplied ?? false);
-      const isListed = (ipo.listingDate && ipo.listingDate < now) || ipo.listingPrice != null;
-      const isUpcoming = !isListed && Boolean(
-        (ipo.openDate && ipo.openDate > now) ||
-        (ipo.closeDate && ipo.closeDate >= new Date(now.getTime() - 24 * 3600 * 1000)) ||
-        (ipo.allotmentDate && ipo.allotmentDate > now)
-      );
+      const lifecycleStatus = ipoLifecycle(ipo, now);
 
       return {
         id: ipo.id,
@@ -408,7 +180,10 @@ export class IpoService implements OnModuleInit {
         name: ipo.name,
         slug: ipo.slug,
         issueType: ipo.issueType,
-        isUpcoming,
+        isUpcoming: lifecycleStatus === 'UPCOMING',
+        lifecycleStatus,
+        biddingOpensAt: biddingTime(ipo.openDate, 10),
+        biddingClosesAt: biddingTime(ipo.closeDate, ipo.issueType === 'SME' ? 16 : 17),
         openDate: ipo.openDate,
         closeDate: ipo.closeDate,
         priceBand: ipo.priceBand,
@@ -481,6 +256,9 @@ export class IpoService implements OnModuleInit {
     return {
       ipo: {
         ...ipo,
+        lifecycleStatus: ipoLifecycle(ipo),
+        biddingOpensAt: biddingTime(ipo.openDate, 10),
+        biddingClosesAt: biddingTime(ipo.closeDate, ipo.issueType === 'SME' ? 16 : 17),
         issuePrice: ipo.issuePrice ?? this.extractIssuePrice(ipo.priceBand),
         listingPrice: ipo.listingPrice ?? null,
         currentPrice: ipo.currentPrice ?? null,

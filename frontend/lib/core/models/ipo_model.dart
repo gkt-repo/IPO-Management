@@ -1,3 +1,41 @@
+enum IpoLifecycle { open, closed, upcoming, unknown }
+
+extension IpoLifecycleLabel on IpoLifecycle {
+  String get label => switch (this) {
+    IpoLifecycle.open => 'Open',
+    IpoLifecycle.closed => 'Closed',
+    IpoLifecycle.upcoming => 'Upcoming',
+    IpoLifecycle.unknown => 'Dates unavailable',
+  };
+}
+
+DateTime? parseScheduleDate(String? value) {
+  if (value == null) return null;
+  // A date without a zone is a calendar date, never the device's midnight.
+  if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value)) {
+    return DateTime.tryParse('${value}T00:00:00Z');
+  }
+  return DateTime.tryParse(value);
+}
+
+// UTC-midnight values represent Indian calendar dates in the legacy API.
+DateTime? biddingTime(DateTime? date, int hour) {
+  if (date == null) return null;
+  final utc = !date.isUtc && date.hour == 0 && date.minute == 0 && date.second == 0 && date.millisecond == 0
+      ? DateTime.utc(date.year, date.month, date.day)
+      : date.toUtc();
+  if (utc.hour != 0 ||
+      utc.minute != 0 ||
+      utc.second != 0 ||
+      utc.millisecond != 0) {
+    return utc;
+  }
+  return utc.add(Duration(minutes: hour * 60 - 330));
+}
+
+DateTime inIndia(DateTime time) =>
+    time.toUtc().add(const Duration(minutes: 330));
+
 enum AllotmentStatusEnum {
   allotted,
   notAllotted,
@@ -64,7 +102,10 @@ class IpoItemModel {
   final DateTime? lastCheckedAt;
   final String? diagnosticMessage;
   final bool hasApplied;
-  final bool? isUpcomingExplicit;
+  final bool?
+  isUpcomingExplicit; // Legacy cached flag; never used for classification.
+  final DateTime? biddingOpensAt;
+  final DateTime? biddingClosesAt;
 
   IpoItemModel({
     required this.id,
@@ -89,29 +130,37 @@ class IpoItemModel {
     this.diagnosticMessage,
     this.hasApplied = false,
     this.isUpcomingExplicit,
+    this.biddingOpensAt,
+    this.biddingClosesAt,
   });
 
-  bool get isUpcoming {
-    if (isUpcomingExplicit != null) return isUpcomingExplicit!;
-    final now = DateTime.now();
-    // If already listed or listing price is available, not upcoming
-    if ((listingDate != null && listingDate!.isBefore(now)) || listingPrice != null) {
-      return false;
+  DateTime? get opensAt => biddingOpensAt ?? biddingTime(openDate, 10);
+  DateTime? get closesAt =>
+      biddingClosesAt ?? biddingTime(closeDate, issueType == 'SME' ? 16 : 17);
+
+  IpoLifecycle lifecycleAt(DateTime now) {
+    final opens = opensAt;
+    final closes = closesAt;
+    if (opens != null && closes != null && !closes.isAfter(opens)) {
+      return IpoLifecycle.unknown;
     }
-    // If explicit openDate is in the future
-    if (openDate != null && openDate!.isAfter(now)) {
-      return true;
+    if (closes != null && !now.isBefore(closes)) return IpoLifecycle.closed;
+    if (listingPrice != null ||
+        (listingDate != null && !now.isBefore(listingDate!))) {
+      return IpoLifecycle.closed;
     }
-    // If closeDate is in the future or today
-    if (closeDate != null && closeDate!.isAfter(now.subtract(const Duration(days: 1)))) {
-      return true;
+    if (opens != null && now.isBefore(opens)) return IpoLifecycle.upcoming;
+    if (opens != null &&
+        closes != null &&
+        !now.isBefore(opens) &&
+        now.isBefore(closes)) {
+      return IpoLifecycle.open;
     }
-    // If allotmentDate is in the future
-    if (allotmentDate != null && allotmentDate!.isAfter(now)) {
-      return true;
-    }
-    return false;
+    return IpoLifecycle.unknown;
   }
+
+  IpoLifecycle get lifecycle => lifecycleAt(DateTime.now());
+  bool get isUpcoming => lifecycle == IpoLifecycle.upcoming;
 
   static double? _extractUpperPrice(String? priceBand) {
     if (priceBand == null || priceBand.isEmpty) return null;
@@ -128,62 +177,10 @@ class IpoItemModel {
     return maxVal > 0 ? maxVal : null;
   }
 
-  static String? _sanitizePriceBand(String? slug, String? name, String? priceBand) {
-    final s = (slug ?? '').toLowerCase();
-    final n = (name ?? '').toLowerCase();
-    if ((s.contains('jio') || n.contains('jio')) &&
-        (priceBand == null || priceBand.contains('450') || priceBand.contains('475'))) {
-      return '₹1,065 - ₹1,119';
-    }
-    return priceBand;
-  }
-
-  static int? _sanitizeLotSize(String? slug, String? name, int? lotSize) {
-    final s = (slug ?? '').toLowerCase();
-    final n = (name ?? '').toLowerCase();
-    if ((s.contains('jio') || n.contains('jio')) && (lotSize == null || lotSize == 30)) {
-      return 12;
-    }
-    return lotSize;
-  }
-
-  static double? _fallbackListingPrice(String? slug, String? name) {
-    final s = (slug ?? '').toLowerCase();
-    final n = (name ?? '').toLowerCase();
-    if (s.contains('fusion') || n.contains('fusion')) return 305.0;
-    if (s.contains('jio') || n.contains('jio')) return 1358.0;
-    if (s.contains('paras') || n.contains('paras')) return 720.0;
-    if (s.contains('swiggy') || n.contains('swiggy')) return 420.0;
-    if (s.contains('ola') || n.contains('ola')) return 76.0;
-    if (s.contains('tata') || n.contains('tata')) return 1200.0;
-    return null;
-  }
-
-  /// Effective issue price in ₹ (uses explicit issuePrice if available, otherwise upper band)
-  double? get effectiveIssuePrice {
-    final s = slug.toLowerCase();
-    final n = name.toLowerCase();
-    if (s.contains('fusion') || n.contains('fusion')) {
-      if (issuePrice == null) return 289.0;
-    }
-    if (s.contains('jio') || n.contains('jio')) {
-      if (issuePrice == null || issuePrice == 475.0) return 1119.0;
-    }
-    return issuePrice ?? _extractUpperPrice(priceBand);
-  }
-
-  /// Effective listing price in ₹ (uses explicit listingPrice, then fallback catalogue)
-  double? get effectiveListingPrice {
-    final s = slug.toLowerCase();
-    final n = name.toLowerCase();
-    if (s.contains('fusion') || n.contains('fusion')) {
-      if (listingPrice == null || listingPrice == 289.0) return 305.0;
-    }
-    if (s.contains('jio') || n.contains('jio')) {
-      if (listingPrice == null || listingPrice == 615.0) return 1358.0;
-    }
-    return listingPrice ?? _fallbackListingPrice(slug, name);
-  }
+  /// Only use supplied prices; company-name guesses can invent a listing.
+  double? get effectiveIssuePrice =>
+      issuePrice ?? _extractUpperPrice(priceBand);
+  double? get effectiveListingPrice => listingPrice;
 
   /// Profit/gain per share (Listing Price - Issue Price)
   double? get gainPerShare {
@@ -229,10 +226,8 @@ class IpoItemModel {
   factory IpoItemModel.fromJson(Map<String, dynamic> json) {
     final name = json['name'] as String;
     final slug = json['slug'] as String? ?? '';
-    final rawPriceBand = json['priceBand'] as String?;
-    final priceBand = _sanitizePriceBand(slug, name, rawPriceBand);
-    final rawLotSize = json['lotSize'] as int?;
-    final lotSize = _sanitizeLotSize(slug, name, rawLotSize);
+    final priceBand = json['priceBand'] as String?;
+    final lotSize = json['lotSize'] as int?;
 
     final status = parseAllotmentStatus(json['status'] as String?);
     final isAllotted = status == AllotmentStatusEnum.allotted;
@@ -244,8 +239,12 @@ class IpoItemModel {
       name: name,
       slug: slug,
       issueType: json['issueType'] as String? ?? 'MAINBOARD',
-      openDate: json['openDate'] != null ? DateTime.tryParse(json['openDate']) : null,
-      closeDate: json['closeDate'] != null ? DateTime.tryParse(json['closeDate']) : null,
+      openDate: json['openDate'] != null
+          ? parseScheduleDate(json['openDate'] as String?)
+          : null,
+      closeDate: json['closeDate'] != null
+          ? parseScheduleDate(json['closeDate'] as String?)
+          : null,
       priceBand: priceBand,
       issuePrice: json['issuePrice'] != null
           ? (json['issuePrice'] as num).toDouble()
@@ -257,16 +256,28 @@ class IpoItemModel {
           ? (json['currentPrice'] as num).toDouble()
           : null,
       lotSize: lotSize,
-      allotmentDate: json['allotmentDate'] != null ? DateTime.tryParse(json['allotmentDate']) : null,
-      listingDate: json['listingDate'] != null ? DateTime.tryParse(json['listingDate']) : null,
+      allotmentDate: json['allotmentDate'] != null
+          ? parseScheduleDate(json['allotmentDate'] as String?)
+          : null,
+      listingDate: json['listingDate'] != null
+          ? parseScheduleDate(json['listingDate'] as String?)
+          : null,
       registrar: json['registrar'] as String? ?? 'UNKNOWN',
       officialVerificationUrl: json['officialVerificationUrl'] as String? ?? '',
       status: status,
       allottedQuantity: json['allottedQuantity'] as int?,
-      lastCheckedAt: json['lastCheckedAt'] != null ? DateTime.tryParse(json['lastCheckedAt']) : null,
+      lastCheckedAt: json['lastCheckedAt'] != null
+          ? DateTime.tryParse(json['lastCheckedAt'])
+          : null,
       diagnosticMessage: json['diagnosticMessage'] as String?,
       hasApplied: hasApplied,
       isUpcomingExplicit: json['isUpcoming'] as bool?,
+      biddingOpensAt: DateTime.tryParse(
+        json['biddingOpensAt'] as String? ?? '',
+      ),
+      biddingClosesAt: DateTime.tryParse(
+        json['biddingClosesAt'] as String? ?? '',
+      ),
     );
   }
 
@@ -310,13 +321,18 @@ class IpoItemModel {
       allotmentDate: allotmentDate ?? this.allotmentDate,
       listingDate: listingDate ?? this.listingDate,
       registrar: registrar ?? this.registrar,
-      officialVerificationUrl: officialVerificationUrl ?? this.officialVerificationUrl,
+      officialVerificationUrl:
+          officialVerificationUrl ?? this.officialVerificationUrl,
       status: status ?? this.status,
       allottedQuantity: allottedQuantity ?? this.allottedQuantity,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
       diagnosticMessage: diagnosticMessage ?? this.diagnosticMessage,
       hasApplied: hasApplied ?? this.hasApplied,
       isUpcomingExplicit: isUpcomingExplicit ?? this.isUpcomingExplicit,
+      biddingOpensAt: openDate == null ? biddingOpensAt : null,
+      biddingClosesAt: closeDate == null && issueType == null
+          ? biddingClosesAt
+          : null,
     );
   }
 }
@@ -348,7 +364,9 @@ class AllotmentHistoryItemModel {
       source: json['source'] as String? ?? 'PEEK',
       errorCode: json['errorCode'] as String?,
       diagnosticMessage: json['diagnosticMessage'] as String?,
-      timestamp: DateTime.tryParse(json['timestamp'] as String? ?? '') ?? DateTime.now(),
+      timestamp:
+          DateTime.tryParse(json['timestamp'] as String? ?? '') ??
+          DateTime.now(),
     );
   }
 }
