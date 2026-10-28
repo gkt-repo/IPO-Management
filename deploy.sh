@@ -51,8 +51,8 @@ until docker compose exec -T ipo_db pg_isready -U "${POSTGRES_USER:-ipo_user}" -
 done
 success "PostgreSQL is healthy."
 
-log "Running Prisma database push / migrations..."
-docker compose exec -T ipo_app npx prisma db push --skip-generate || warn "Prisma push completed with notices."
+log "Waiting for IPO App container to initialize..."
+sleep 5
 
 log "Verifying running containers..."
 docker compose ps

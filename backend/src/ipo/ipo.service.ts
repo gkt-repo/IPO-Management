@@ -13,9 +13,12 @@ export class IpoService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Seed initial representative IPOs if table is empty, and sync dynamic catalogues
-    await this.ensureSeedIpos();
-    // Non-blocking dynamic discovery
+    try {
+      await this.ensureSeedIpos();
+    } catch (err: any) {
+      this.logger.warn(`Initial seed deferred: ${err.message}`);
+    }
+
     this.syncDynamicCatalogues().catch((err) => {
       this.logger.warn(`Initial catalogue discovery sync: ${err.message}`);
     });
