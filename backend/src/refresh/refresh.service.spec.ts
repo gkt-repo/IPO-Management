@@ -24,6 +24,7 @@ describe('RefreshService', () => {
       },
       allotmentCheck: {
         findUnique: jest.fn(),
+        findMany: jest.fn(),
         upsert: jest.fn(),
       },
       allotmentHistory: {
@@ -105,8 +106,8 @@ describe('RefreshService', () => {
     });
 
     mockPrisma.refreshJob.findFirst.mockResolvedValue(null);
-    mockPrisma.iPO.findMany.mockResolvedValue([
-      { id: 'ipo-1', name: 'Test IPO', registrar: 'KFINTECH', externalId: '123' },
+    mockPrisma.allotmentCheck.findMany.mockResolvedValue([
+      { hasApplied: true, status: AllotmentStatus.PENDING, ipo: { id: 'ipo-1', name: 'Test IPO', registrar: 'KFINTECH', externalId: '123', isActive: true } },
     ]);
     mockPrisma.refreshJob.create.mockResolvedValue({
       id: 'job-new',

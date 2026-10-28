@@ -6,6 +6,7 @@ import '../screens/auth/register_screen.dart';
 import '../screens/dashboard/dashboard_screen.dart';
 import '../screens/pan/pan_settings_screen.dart';
 import '../screens/ipo/ipo_detail_screen.dart';
+import '../screens/webview/in_app_web_view_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authProvider);
@@ -50,6 +51,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final id = state.pathParameters['id'] ?? '';
           return IpoDetailScreen(ipoId: id);
+        },
+      ),
+      GoRoute(
+        path: '/webview',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          final url = extra['url'] as String? ?? 'https://ipostatus.kfintech.com/';
+          final title = extra['title'] as String? ?? 'Registrar Portal';
+          final pan = extra['pan'] as String?;
+          return InAppWebViewScreen(url: url, title: title, pan: pan);
         },
       ),
     ],

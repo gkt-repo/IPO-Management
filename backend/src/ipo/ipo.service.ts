@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PeekService } from '../peek/peek.service';
 import { MarketPriceService } from './market-price.service';
@@ -167,6 +167,12 @@ export class IpoService implements OnModuleInit {
         create: item,
       });
     }
+
+    // Ensure all existing ALLOTTED checks are permanently marked as applied
+    await this.prisma.allotmentCheck.updateMany({
+      where: { status: AllotmentStatus.ALLOTTED },
+      data: { hasApplied: true },
+    });
   }
 
   private extractIssuePrice(priceBand?: string | null): number | null {
@@ -251,6 +257,7 @@ export class IpoService implements OnModuleInit {
               select: {
                 id: true,
                 status: true,
+                hasApplied: true,
                 allottedQuantity: true,
                 latestAttemptStatus: true,
                 source: true,
@@ -275,6 +282,9 @@ export class IpoService implements OnModuleInit {
 
     return ipos.map((ipo) => {
       const check = ipo.checks?.[0];
+      const isAllotted = check?.status === AllotmentStatus.ALLOTTED;
+      const hasApplied = isAllotted || (check?.hasApplied ?? false);
+
       return {
         id: ipo.id,
         externalId: ipo.externalId,
@@ -293,7 +303,12 @@ export class IpoService implements OnModuleInit {
         listingDate: ipo.listingDate,
         registrar: ipo.registrar,
         officialVerificationUrl: ipo.officialVerificationUrl || this.peekService.getOfficialRegistrarUrl(ipo.registrar),
-        status: check?.status || AllotmentStatus.PENDING,
+        hasApplied,
+        status: isAllotted
+          ? AllotmentStatus.ALLOTTED
+          : hasApplied
+            ? (check?.status || AllotmentStatus.PENDING)
+            : 'NOT_APPLIED',
         allottedQuantity: check?.allottedQuantity ?? null,
         latestAttemptStatus: check?.latestAttemptStatus || null,
         lastCheckedAt: check?.checkedAt || null,
@@ -342,6 +357,9 @@ export class IpoService implements OnModuleInit {
       });
     }
 
+    const isAllotted = currentCheck?.status === AllotmentStatus.ALLOTTED;
+    const hasApplied = isAllotted || (currentCheck?.hasApplied ?? false);
+
     return {
       ipo: {
         ...ipo,
@@ -352,8 +370,87 @@ export class IpoService implements OnModuleInit {
         officialVerificationUrl: ipo.officialVerificationUrl || this.peekService.getOfficialRegistrarUrl(ipo.registrar),
       },
       userPan: savedPan ? { id: savedPan.id, masked: savedPan.panMasked } : null,
-      currentCheck,
+      currentCheck: currentCheck
+        ? {
+            ...currentCheck,
+            hasApplied,
+            status: isAllotted
+              ? AllotmentStatus.ALLOTTED
+              : hasApplied
+                ? currentCheck.status
+                : 'NOT_APPLIED',
+          }
+        : null,
+      hasApplied,
       history,
+    };
+  }
+
+  /**
+   * Toggles whether the user has marked "I have applied" for an IPO.
+   * If already ALLOTTED, it cannot be un-applied.
+   */
+  async toggleApplied(ipoId: string, userId: string) {
+    const ipo = await this.prisma.iPO.findUnique({
+      where: { id: ipoId },
+    });
+    if (!ipo) {
+      throw new NotFoundException('IPO not found');
+    }
+
+    const savedPan = await this.prisma.savedPan.findUnique({
+      where: { userId },
+    });
+    if (!savedPan) {
+      throw new BadRequestException('Please link your PAN before marking applied IPOs');
+    }
+
+    const existingCheck = await this.prisma.allotmentCheck.findUnique({
+      where: {
+        savedPanId_ipoId: {
+          savedPanId: savedPan.id,
+          ipoId: ipo.id,
+        },
+      },
+    });
+
+    if (existingCheck && existingCheck.status === AllotmentStatus.ALLOTTED) {
+      return {
+        success: true,
+        hasApplied: true,
+        status: AllotmentStatus.ALLOTTED,
+        message: 'This IPO is confirmed ALLOTTED and will always remain applied.',
+      };
+    }
+
+    const nextApplied = existingCheck ? !existingCheck.hasApplied : true;
+
+    const check = await this.prisma.allotmentCheck.upsert({
+      where: {
+        savedPanId_ipoId: {
+          savedPanId: savedPan.id,
+          ipoId: ipo.id,
+        },
+      },
+      update: {
+        hasApplied: nextApplied,
+        status: nextApplied
+          ? (existingCheck?.status === AllotmentStatus.NOT_ALLOTTED ? AllotmentStatus.PENDING : (existingCheck?.status || AllotmentStatus.PENDING))
+          : AllotmentStatus.PENDING,
+      },
+      create: {
+        savedPanId: savedPan.id,
+        ipoId: ipo.id,
+        hasApplied: true,
+        status: AllotmentStatus.PENDING,
+        source: 'MANUAL_APPLIED',
+      },
+    });
+
+    return {
+      success: true,
+      hasApplied: check.hasApplied,
+      status: check.hasApplied ? check.status : 'NOT_APPLIED',
     };
   }
 
@@ -391,11 +488,16 @@ export class IpoService implements OnModuleInit {
       };
     }
 
-    const [checks, activeJob, latestCheck] = await Promise.all([
-      this.prisma.allotmentCheck.groupBy({
-        by: ['status'],
-        where: { savedPanId: savedPan.id },
-        _count: { status: true },
+    const [allottedCount, pendingCount, activeJob, latestCheck] = await Promise.all([
+      this.prisma.allotmentCheck.count({
+        where: { savedPanId: savedPan.id, status: AllotmentStatus.ALLOTTED },
+      }),
+      this.prisma.allotmentCheck.count({
+        where: {
+          savedPanId: savedPan.id,
+          hasApplied: true,
+          status: { not: AllotmentStatus.ALLOTTED },
+        },
       }),
       this.prisma.refreshJob.findFirst({
         where: {
@@ -412,42 +514,13 @@ export class IpoService implements OnModuleInit {
     ]);
 
     const counts = {
-      allotted: 0,
+      allotted: allottedCount,
       notAllotted: 0,
-      pending: 0,
+      pending: pendingCount,
       lookupFailed: 0,
       notSupported: 0,
-      total: 0,
+      total: allottedCount + pendingCount,
     };
-
-    for (const group of checks) {
-      const count = group._count.status;
-      counts.total += count;
-      switch (group.status) {
-        case AllotmentStatus.ALLOTTED:
-          counts.allotted += count;
-          break;
-        case AllotmentStatus.NOT_ALLOTTED:
-          counts.notAllotted += count;
-          break;
-        case AllotmentStatus.PENDING:
-          counts.pending += count;
-          break;
-        case AllotmentStatus.LOOKUP_FAILED:
-          counts.lookupFailed += count;
-          break;
-        case AllotmentStatus.NOT_SUPPORTED:
-          counts.notSupported += count;
-          break;
-      }
-    }
-
-    // Also account for unapplied/pending IPOs in catalogue
-    const totalIpos = await this.prisma.iPO.count({ where: { isActive: true } });
-    if (totalIpos > counts.total) {
-      counts.pending += (totalIpos - counts.total);
-      counts.total = totalIpos;
-    }
 
     return {
       hasPan: true,

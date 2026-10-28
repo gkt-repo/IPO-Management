@@ -4,6 +4,7 @@ enum AllotmentStatusEnum {
   pending,
   lookupFailed,
   notSupported,
+  notApplied,
 }
 
 AllotmentStatusEnum parseAllotmentStatus(String? status) {
@@ -16,6 +17,8 @@ AllotmentStatusEnum parseAllotmentStatus(String? status) {
       return AllotmentStatusEnum.lookupFailed;
     case 'NOT_SUPPORTED':
       return AllotmentStatusEnum.notSupported;
+    case 'NOT_APPLIED':
+      return AllotmentStatusEnum.notApplied;
     case 'PENDING':
     default:
       return AllotmentStatusEnum.pending;
@@ -34,6 +37,8 @@ String allotmentStatusLabel(AllotmentStatusEnum status) {
       return 'Lookup Failed';
     case AllotmentStatusEnum.notSupported:
       return 'Not Supported';
+    case AllotmentStatusEnum.notApplied:
+      return 'Not Applied';
   }
 }
 
@@ -57,6 +62,7 @@ class IpoItemModel {
   final int? allottedQuantity;
   final DateTime? lastCheckedAt;
   final String? diagnosticMessage;
+  final bool hasApplied;
 
   IpoItemModel({
     required this.id,
@@ -78,6 +84,7 @@ class IpoItemModel {
     this.allottedQuantity,
     this.lastCheckedAt,
     this.diagnosticMessage,
+    this.hasApplied = false,
   });
 
   static double? _extractUpperPrice(String? priceBand) {
@@ -194,6 +201,10 @@ class IpoItemModel {
     final rawLotSize = json['lotSize'] as int?;
     final lotSize = _sanitizeLotSize(slug, name, rawLotSize);
 
+    final status = parseAllotmentStatus(json['status'] as String?);
+    final isAllotted = status == AllotmentStatusEnum.allotted;
+    final hasApplied = isAllotted || (json['hasApplied'] as bool? ?? false);
+
     return IpoItemModel(
       id: json['id'] as String,
       externalId: json['externalId'] as String?,
@@ -214,10 +225,57 @@ class IpoItemModel {
       listingDate: json['listingDate'] != null ? DateTime.tryParse(json['listingDate']) : null,
       registrar: json['registrar'] as String? ?? 'UNKNOWN',
       officialVerificationUrl: json['officialVerificationUrl'] as String? ?? '',
-      status: parseAllotmentStatus(json['status'] as String?),
+      status: status,
       allottedQuantity: json['allottedQuantity'] as int?,
       lastCheckedAt: json['lastCheckedAt'] != null ? DateTime.tryParse(json['lastCheckedAt']) : null,
       diagnosticMessage: json['diagnosticMessage'] as String?,
+      hasApplied: hasApplied,
+    );
+  }
+
+  IpoItemModel copyWith({
+    String? id,
+    String? externalId,
+    String? name,
+    String? slug,
+    String? issueType,
+    DateTime? openDate,
+    DateTime? closeDate,
+    String? priceBand,
+    double? issuePrice,
+    double? listingPrice,
+    int? lotSize,
+    DateTime? allotmentDate,
+    DateTime? listingDate,
+    String? registrar,
+    String? officialVerificationUrl,
+    AllotmentStatusEnum? status,
+    int? allottedQuantity,
+    DateTime? lastCheckedAt,
+    String? diagnosticMessage,
+    bool? hasApplied,
+  }) {
+    return IpoItemModel(
+      id: id ?? this.id,
+      externalId: externalId ?? this.externalId,
+      name: name ?? this.name,
+      slug: slug ?? this.slug,
+      issueType: issueType ?? this.issueType,
+      openDate: openDate ?? this.openDate,
+      closeDate: closeDate ?? this.closeDate,
+      priceBand: priceBand ?? this.priceBand,
+      issuePrice: issuePrice ?? this.issuePrice,
+      listingPrice: listingPrice ?? this.listingPrice,
+      lotSize: lotSize ?? this.lotSize,
+      allotmentDate: allotmentDate ?? this.allotmentDate,
+      listingDate: listingDate ?? this.listingDate,
+      registrar: registrar ?? this.registrar,
+      officialVerificationUrl: officialVerificationUrl ?? this.officialVerificationUrl,
+      status: status ?? this.status,
+      allottedQuantity: allottedQuantity ?? this.allottedQuantity,
+      lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
+      diagnosticMessage: diagnosticMessage ?? this.diagnosticMessage,
+      hasApplied: hasApplied ?? this.hasApplied,
     );
   }
 }

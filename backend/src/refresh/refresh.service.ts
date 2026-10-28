@@ -72,17 +72,42 @@ export class RefreshService {
       }
     }
 
-    // 4. Fetch eligible IPOs
-    const eligibleIpos = await this.prisma.iPO.findMany({
-      where: { isActive: true },
-      orderBy: { allotmentDate: 'desc' },
+    // 4. Fetch ONLY IPOs marked as applied by this user that are NOT already ALLOTTED
+    // Rule: "do not check again for alloated one , once allowted then it is always allowted"
+    // Rule: "lets add ia marker after tapping ipo names : i have applied , and then the only scan marked one , nothing else"
+    const appliedChecks = await this.prisma.allotmentCheck.findMany({
+      where: {
+        savedPanId: savedPan.id,
+        hasApplied: true,
+        status: { not: AllotmentStatus.ALLOTTED },
+      },
+      include: { ipo: true },
     });
 
+    const eligibleIpos = appliedChecks
+      .map((c) => c.ipo)
+      .filter((ipo) => ipo && ipo.isActive);
+
     if (eligibleIpos.length === 0) {
+      const completedJob = await this.prisma.refreshJob.create({
+        data: {
+          userId,
+          status: JobStatus.COMPLETED,
+          totalIpos: 0,
+          processedIpos: 0,
+          allottedCount: 0,
+          notAllottedCount: 0,
+          pendingCount: 0,
+          failedCount: 0,
+          completedAt: new Date(),
+        },
+      });
+
       return {
-        jobId: null,
+        jobId: completedJob.id,
         status: JobStatus.COMPLETED,
-        message: 'No active IPOs to check at this time.',
+        message: 'All applied IPOs are up to date. No pending scans needed.',
+        cooldownRemainingSeconds: 0,
       };
     }
 

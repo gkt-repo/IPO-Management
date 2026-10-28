@@ -462,6 +462,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         fg = AppColors.info;
         label = 'NOT SUPPORTED';
         break;
+      case AllotmentStatusEnum.notApplied:
+        bg = Colors.grey.shade100;
+        fg = AppColors.textSecondary;
+        label = 'NOT APPLIED';
+        break;
     }
 
     return Container(
@@ -947,8 +952,81 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   _buildStatusBadge(ipo.status, ipo.allottedQuantity),
                                 ],
                               ),
-                              if (ipo.status == AllotmentStatusEnum.allotted)
+                              if (ipo.status == AllotmentStatusEnum.allotted) ...[
                                 _buildAllotmentProfitCard(ipo),
+                              ] else ...[
+                                const SizedBox(height: 12),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    InkWell(
+                                      onTap: () {
+                                        ref.read(ipoListProvider.notifier).toggleApplied(ipo.id);
+                                      },
+                                      borderRadius: BorderRadius.circular(20),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: ipo.hasApplied
+                                              ? AppColors.primary.withValues(alpha: 0.12)
+                                              : Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(
+                                            color: ipo.hasApplied ? AppColors.primary : Colors.grey.shade300,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              ipo.hasApplied ? Icons.check_circle : Icons.add_circle_outline,
+                                              size: 14,
+                                              color: ipo.hasApplied ? AppColors.primary : AppColors.textSecondary,
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              ipo.hasApplied ? 'Applied ✓' : '+ I have applied',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: ipo.hasApplied ? AppColors.primary : AppColors.textPrimary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    if (ipo.officialVerificationUrl.isNotEmpty)
+                                      InkWell(
+                                        onTap: () {
+                                          context.push('/webview', extra: {
+                                            'url': ipo.officialVerificationUrl,
+                                            'title': '${ipo.registrar} Allotment Portal',
+                                            'pan': panState.pan?.panMasked ?? '',
+                                          });
+                                        },
+                                        borderRadius: BorderRadius.circular(20),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.open_in_new, size: 13, color: AppColors.accent),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                'Open ${ipo.registrar}',
+                                                style: const TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.accent,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
                             ],
                           ),
                         ),

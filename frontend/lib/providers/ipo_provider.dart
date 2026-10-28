@@ -208,6 +208,46 @@ class IpoListNotifier extends Notifier<IpoListState> {
     }
   }
 
+  Future<void> toggleApplied(String ipoId) async {
+    final updatedIpos = state.ipos.map((ipo) {
+      if (ipo.id == ipoId) {
+        if (ipo.status == AllotmentStatusEnum.allotted) return ipo;
+        final newApplied = !ipo.hasApplied;
+        return ipo.copyWith(
+          hasApplied: newApplied,
+          status: newApplied ? AllotmentStatusEnum.pending : AllotmentStatusEnum.notApplied,
+        );
+      }
+      return ipo;
+    }).toList();
+
+    state = state.copyWith(ipos: updatedIpos);
+
+    try {
+      final res = await _apiClient.dio.post('${ApiConstants.ipoList}/$ipoId/toggle-applied');
+      final data = res.data;
+      if (data['hasApplied'] != null) {
+        final bool confirmedApplied = data['hasApplied'];
+        final updated = state.ipos.map((ipo) {
+          if (ipo.id == ipoId) {
+            return ipo.copyWith(
+              hasApplied: confirmedApplied,
+              status: parseAllotmentStatus(data['status']),
+            );
+          }
+          return ipo;
+        }).toList();
+        state = state.copyWith(ipos: updated);
+      }
+
+      // Update dashboard summary counts
+      final summaryRes = await _apiClient.dio.get(ApiConstants.dashboard);
+      state = state.copyWith(summary: DashboardSummaryModel.fromJson(summaryRes.data));
+    } catch (_) {
+      fetchIposAndSummary(silent: true);
+    }
+  }
+
   void setIssueTypeFilter(String issueType) {
     state = state.copyWith(selectedIssueType: issueType);
   }

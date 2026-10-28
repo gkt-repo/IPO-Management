@@ -28,6 +28,14 @@ export class IpoController {
     return this.ipoService.syncListingPrices();
   }
 
+  @Post(':id/toggle-applied')
+  async toggleApplied(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.ipoService.toggleApplied(id, user.id);
+  }
+
   @Get(':id')
   async getIpoDetails(
     @Param('id') id: string,

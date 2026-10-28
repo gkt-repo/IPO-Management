@@ -9,6 +9,7 @@ void main() {
     expect(parseAllotmentStatus('NOT_ALLOTTED'), AllotmentStatusEnum.notAllotted);
     expect(parseAllotmentStatus('LOOKUP_FAILED'), AllotmentStatusEnum.lookupFailed);
     expect(parseAllotmentStatus('NOT_SUPPORTED'), AllotmentStatusEnum.notSupported);
+    expect(parseAllotmentStatus('NOT_APPLIED'), AllotmentStatusEnum.notApplied);
     expect(parseAllotmentStatus('PENDING'), AllotmentStatusEnum.pending);
     expect(parseAllotmentStatus(null), AllotmentStatusEnum.pending);
   });

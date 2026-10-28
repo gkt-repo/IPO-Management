@@ -108,6 +108,7 @@ model AllotmentCheck {
   // Confirmed status (never degraded by a subsequent lookup failure)
   status             AllotmentStatus  @default(PENDING)
   allottedQuantity   Int?
+  hasApplied         Boolean          @default(false)
   
   // Latest lookup attempt diagnostics
   latestAttemptStatus AllotmentStatus @default(PENDING)

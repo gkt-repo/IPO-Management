@@ -28,6 +28,7 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
   String? _diagnosticMessage;
   List<AllotmentHistoryItemModel> _history = [];
   String? _errorMessage;
+  bool _hasApplied = false;
 
   @override
   void initState() {
@@ -53,6 +54,9 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
           _lastCheckedAt = checkData['checkedAt'] != null ? DateTime.tryParse(checkData['checkedAt']) : null;
           _diagnosticMessage = checkData['diagnosticMessage'] as String?;
         }
+        _hasApplied = (res.data['hasApplied'] as bool? ?? false) ||
+            (checkData?['hasApplied'] as bool? ?? false) ||
+            _currentStatus == AllotmentStatusEnum.allotted;
         _history = historyData.map((h) => AllotmentHistoryItemModel.fromJson(h)).toList();
         _isLoading = false;
       });
@@ -68,23 +72,12 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
     final urlStr = _ipo?.officialVerificationUrl;
     if (urlStr == null || urlStr.isEmpty) return;
 
-    final uri = Uri.parse(urlStr);
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Could not open link: $urlStr')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error launching link: $e')),
-        );
-      }
+    if (mounted) {
+      context.push('/webview', extra: {
+        'url': urlStr,
+        'title': '${_ipo?.registrar ?? "Registrar"} Allotment Portal',
+        'pan': _maskedPan ?? '',
+      });
     }
   }
 
@@ -132,6 +125,13 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
         icon = Icons.info_outline_rounded;
         title = 'Registrar Not Supported';
         sub = 'Automated check is not supported for this registrar. Please verify via official registrar page below.';
+        break;
+      case AllotmentStatusEnum.notApplied:
+        bg = Colors.grey.shade100;
+        fg = AppColors.textPrimary;
+        icon = Icons.info_outline_rounded;
+        title = 'Not Applied';
+        sub = 'You have not marked this IPO as applied. Turn on the switch above to include in allotment tracking.';
         break;
     }
 
@@ -306,6 +306,69 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // "I have applied" toggle card
+                      Card(
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: _hasApplied ? AppColors.primary : AppColors.border,
+                            width: _hasApplied ? 1.5 : 1,
+                          ),
+                        ),
+                        color: _hasApplied ? AppColors.primary.withValues(alpha: 0.04) : Colors.white,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    _hasApplied ? Icons.check_circle : Icons.bookmark_border,
+                                    color: _hasApplied ? AppColors.primary : AppColors.textSecondary,
+                                    size: 22,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _hasApplied ? 'Marked as Applied' : 'Have you applied?',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: _hasApplied ? AppColors.primary : AppColors.textPrimary,
+                                        ),
+                                      ),
+                                      Text(
+                                        _currentStatus == AllotmentStatusEnum.allotted
+                                            ? 'Allotment confirmed permanently'
+                                            : _hasApplied
+                                                ? 'Included in automated allotment scan'
+                                                : 'Tap switch to track allotment',
+                                        style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              Switch(
+                                value: _hasApplied,
+                                activeColor: AppColors.primary,
+                                onChanged: _currentStatus == AllotmentStatusEnum.allotted
+                                    ? null
+                                    : (val) async {
+                                        await ref.read(ipoListProvider.notifier).toggleApplied(widget.ipoId);
+                                        await _loadDetails();
+                                      },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
                       _buildStatusBanner(),
                       if (_currentStatus == AllotmentStatusEnum.allotted && _allottedQuantity != null && _allottedQuantity! > 0)
                         _buildAllotmentProfitDetailCard(),
