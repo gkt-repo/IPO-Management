@@ -117,11 +117,31 @@ These tabs describe the overall subscription period, not an intraday trading ses
 broker/category deadlines can differ. The API also returns `biddingOpensAt` and
 `biddingClosesAt`; clients recalculate status when these boundaries pass and on resume.
 
-Registrar discovery currently provides names/identifiers, **not verified schedules**.
-Incomplete schedules are shown separately as “Dates unavailable”, unless closing or
-listing evidence establishes that bidding is closed. Populate verified board and
-schedule data before expecting a newly discovered issue in a dated tab. Discovery's
-name-based SME detection also needs verified issue-type data for names without “SME”.
+Schedules now synchronize automatically on startup and every 15 minutes from
+[NSE current issues](https://www.nseindia.com/api/ipo-current-issue),
+[NSE upcoming issues](https://www.nseindia.com/api/all-upcoming-issues?category=ipo),
+[NSE past issues](https://www.nseindia.com/api/public-past-issues), and
+[Groww's public IPO catalogue](https://groww.in/ipo) for additional SME coverage.
+NSE dates and board classification take priority; Groww supplies supplemental
+allotment dates, lot sizes and registrar links. Only dated equity issues are imported;
+pre-application availability never changes an IPO's actual opening date. Current
+source coverage is not a guarantee that every exchange issue is present.
+
+The importer keeps recent 120-day history plus every already-tracked issue available
+in the sources. Existing IPO IDs, registrar IDs, applied flags and allotment history
+are preserved. A failed source retains last-known data; authenticated
+`GET /api/ipo/catalogue-status` exposes the last successful refresh, sources and errors.
+Per-row source and verification time are stored in `metadata.catalogue`. Detail
+requests are bounded to 24 per cycle and refreshed at most daily. Registrar discovery
+adds identities, not schedules, and matches the existing catalogue to avoid duplicates.
+The unsupported Apex Cloud Automation template is archived only when its exact old
+seed identifier and dates match; its history is not deleted.
+
+The app fetches the catalogue independently of portfolio totals and displays a warning
+if it must use cached schedules after a network failure. A saved record alone is never
+reported as a fresh schedule download. Listing-price sync is restricted to active IPOs
+with a past listing date and closed bidding, so unrelated search results cannot mark
+an undated or upcoming IPO as listed.
 
 Startup no longer inserts sample IPOs or overwrites all catalogue dates and quotes.
 It repairs only exact matches for four known incorrect legacy seed schedules:
@@ -135,7 +155,32 @@ It repairs only exact matches for four known incorrect legacy seed schedules:
 
 For those exact legacy rows, unsourced seeded allotment/listing milestones and market
 quotes are cleared; exchange price sync can repopulate quotes. Other imported rows,
-IDs and user allotment history are preserved. Remaining catalogue dates still depend
-on their source and have not been independently verified by this repair. Restart the
-updated backend and refresh the client to apply the data corrections; no schema
-migration is required.
+IDs and user allotment history are preserved. The scheduled importer also repairs remaining legacy dates from its live sources. Restart the
+updated backend and refresh the client to apply the data corrections.
+
+## Refresh and account reliability
+
+Refresh jobs use a `heartbeatAt` column and a two-minute lease. Progress polling
+or a new refresh recovers expired jobs after a crash. PostgreSQL serializes
+refresh admission per user; cancelled or expired workers cannot save late results.
+Replacing a PAN creates a new saved-PAN identity and cancels active scans.
+
+Before running this version locally, run `npm run prisma:generate` and
+`npm run prisma:push` in `backend`. Docker startup already pushes the schema.
+Rebuild the backend image for the XML parser dependency, and rebuild PEEK and
+the Flutter client for their response-validation and session fixes.
+
+Registrar errors and invalid or missing share counts remain `LOOKUP_FAILED`.
+Saved non-allotment results are rechecked on refresh so old parsing errors do
+not remain permanently cached. Confirmed allotments stay preserved. Catalogue
+fallbacks retain stored exchange schedules and their verification time.
+
+Client caches are scoped to each account. Logout clears account state, and late
+responses from previous sessions are ignored. Enter the full PAN directly in
+the registrar's form; the masked value is no longer offered for copying.
+
+Authentication endpoints allow ten requests per minute per client IP; other
+routes allow 100 per minute per route and client IP. Docker sets `TRUST_PROXY=1`
+for the documented single Nginx hop and localhost-only backend port. For other
+deployments, set `TRUST_PROXY` to the trusted proxy addresses or hop count, or
+leave it unset when clients connect directly.

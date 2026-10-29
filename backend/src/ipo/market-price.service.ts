@@ -171,10 +171,9 @@ export class MarketPriceService {
 
     const eligibleIpos = await this.prisma.iPO.findMany({
       where: {
-        OR: [
-          { listingDate: { lte: now } },
-          { listingDate: null, listingPrice: null },
-        ],
+        isActive: true,
+        listingDate: { lte: now },
+        closeDate: { lt: now },
       },
     });
 

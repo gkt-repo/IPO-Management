@@ -165,12 +165,14 @@ class KFintechAdapter(RegistrarAdapter):
             return RegistrarResult(status=AllotmentStatus.NOT_APPLIED, message="No application was found for this PAN against this IPO.")
 
         allotted_raw = record.get("All_Shares")
-        applied_raw = record.get("App_Shares")
-        if allotted_raw is None and applied_raw is None:
+        if allotted_raw is None:
             return RegistrarResult(status=AllotmentStatus.LOOKUP_FAILED, message="KFintech returned an unrecognized response format.")
 
         try:
-            allotted = int(str(allotted_raw or 0).replace(",", ""))
+            raw = str(allotted_raw).strip()
+            if not re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)", raw):
+                raise ValueError("Invalid share count")
+            allotted = int(raw.replace(",", ""))
         except ValueError:
             return RegistrarResult(status=AllotmentStatus.LOOKUP_FAILED, message="KFintech returned an invalid share count.")
 

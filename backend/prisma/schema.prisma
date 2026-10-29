@@ -158,6 +158,7 @@ model RefreshJob {
   pendingCount     Int        @default(0)
   failedCount      Int        @default(0)
   startedAt        DateTime   @default(now())
+  heartbeatAt      DateTime   @default(now())
   completedAt      DateTime?
   errorSummary     String?
 

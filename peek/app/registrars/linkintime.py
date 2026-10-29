@@ -11,13 +11,19 @@ BASE_URL = "https://in.mpms.mufg.com/Initial_Offer/IPO.aspx"
 
 
 def parse_dataset(xml_text: str) -> list[dict[str, str]]:
+    if not isinstance(xml_text, str):
+        raise ValueError("MUFG returned an unexpected response format")
     xml_text = xml_text.strip()
     if not xml_text or "<NewDataSet" not in xml_text:
-        return []
+        raise ValueError("MUFG returned an unexpected response format")
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as exc:
         raise ValueError("MUFG returned invalid XML") from exc
+    if root.tag.split("}")[-1] != "NewDataSet":
+        raise ValueError("MUFG returned an unexpected dataset")
+    if root.text and root.text.strip():
+        raise ValueError("MUFG returned an unrecognized dataset")
     rows: list[dict[str, str]] = []
     for table in root.iter():
         if table.tag.split("}")[-1].lower() != "table":
@@ -25,6 +31,8 @@ def parse_dataset(xml_text: str) -> list[dict[str, str]]:
         row = {child.tag.split("}")[-1]: (child.text or "").strip() for child in table}
         if row:
             rows.append(row)
+    if len(root) and not rows:
+        raise ValueError("MUFG returned an unrecognized dataset")
     return rows
 
 
@@ -58,7 +66,7 @@ class LinkIntimeAdapter(RegistrarAdapter):
             return RegistrarResult(status=AllotmentStatus.LOOKUP_FAILED, message=f"MUFG Intime lookup failed ({exc.__class__.__name__}).")
 
         try:
-            rows = parse_dataset(payload.get("d", ""))
+            rows = parse_dataset(payload.get("d", "") if isinstance(payload, dict) else None)
         except ValueError as exc:
             return RegistrarResult(status=AllotmentStatus.LOOKUP_FAILED, message=str(exc))
         return self._parse_result(rows)
@@ -74,9 +82,11 @@ class LinkIntimeAdapter(RegistrarAdapter):
         allotted_key = next((k for k in row if re.match(r"^al+ot", k, re.I)), None)
         if allotted_key is None:
             return RegistrarResult(status=AllotmentStatus.LOOKUP_FAILED, message="MUFG Intime returned an unrecognized response format.")
-        raw = re.sub(r"[^0-9-]", "", row.get(allotted_key, ""))
+        raw = row.get(allotted_key, "").strip()
         try:
-            allotted = int(raw or 0)
+            if not re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)", raw):
+                raise ValueError("Invalid share count")
+            allotted = int(raw.replace(",", ""))
         except ValueError:
             return RegistrarResult(status=AllotmentStatus.LOOKUP_FAILED, message="MUFG Intime returned an invalid share count.")
         if allotted > 0:

@@ -59,8 +59,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           final extra = state.extra as Map<String, dynamic>? ?? {};
           final url = extra['url'] as String? ?? 'https://ipostatus.kfintech.com/';
           final title = extra['title'] as String? ?? 'Registrar Portal';
-          final pan = extra['pan'] as String?;
-          return InAppWebViewScreen(url: url, title: title, pan: pan);
+          return InAppWebViewScreen(url: url, title: title);
         },
       ),
     ],

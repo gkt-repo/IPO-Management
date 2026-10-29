@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/api/api_client.dart';
 import '../core/constants/api_constants.dart';
 import 'ipo_provider.dart';
+import 'account_session_provider.dart';
 
 class RefreshJobState {
   final bool isRefreshing;
@@ -31,7 +32,9 @@ class RefreshJobState {
   }) {
     return RefreshJobState(
       isRefreshing: isRefreshing ?? this.isRefreshing,
-      activeJobId: activeJobId ?? this.activeJobId,
+      activeJobId: isRefreshing == false
+          ? null
+          : activeJobId ?? this.activeJobId,
       totalIpos: totalIpos ?? this.totalIpos,
       processedIpos: processedIpos ?? this.processedIpos,
       statusMessage: statusMessage ?? this.statusMessage,
@@ -46,6 +49,8 @@ class RefreshJobNotifier extends Notifier<RefreshJobState> {
 
   @override
   RefreshJobState build() {
+    ref.watch(accountSessionProvider);
+    _pollingTimer?.cancel();
     ref.onDispose(() {
       _pollingTimer?.cancel();
     });
@@ -71,7 +76,12 @@ class RefreshJobNotifier extends Notifier<RefreshJobState> {
     await startRefresh(force: true);
   }
 
+  bool _isCurrent(AccountSession session) =>
+      ref.mounted && identical(ref.read(accountSessionProvider), session);
+
   Future<void> startRefresh({required bool force}) async {
+    final session = ref.read(accountSessionProvider);
+    if (session.userId == null) return;
     state = state.copyWith(
       isRefreshing: true,
       lastTriggerTime: DateTime.now(),
@@ -84,16 +94,14 @@ class RefreshJobNotifier extends Notifier<RefreshJobState> {
         '${ApiConstants.refresh}?force=${force ? "true" : "false"}',
       );
 
+      if (!_isCurrent(session)) return;
       final jobId = res.data['jobId'] as String?;
       final status = res.data['status'] as String?;
       final message = res.data['message'] as String? ?? 'Refresh initiated';
       final total = (res.data['totalIpos'] as num?)?.toInt() ?? 0;
 
       if (status == 'COMPLETED') {
-        state = state.copyWith(
-          isRefreshing: false,
-          statusMessage: message,
-        );
+        state = state.copyWith(isRefreshing: false, statusMessage: message);
         ref.read(ipoListProvider.notifier).fetchIposAndSummary(silent: true);
         return;
       }
@@ -109,6 +117,7 @@ class RefreshJobNotifier extends Notifier<RefreshJobState> {
         state = state.copyWith(isRefreshing: false, statusMessage: message);
       }
     } catch (e) {
+      if (!_isCurrent(session)) return;
       state = state.copyWith(
         isRefreshing: false,
         statusMessage: 'Refresh bypassed: checking cached results',
@@ -117,13 +126,26 @@ class RefreshJobNotifier extends Notifier<RefreshJobState> {
   }
 
   void _startPolling(String jobId) {
+    final session = ref.read(accountSessionProvider);
+    bool polling = false;
     _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (!_isCurrent(session)) {
+        timer.cancel();
+        return;
+      }
+      if (polling) return;
+      polling = true;
       try {
         final res = await _apiClient.dio.get('${ApiConstants.refresh}/$jobId');
+        if (!_isCurrent(session)) {
+          timer.cancel();
+          return;
+        }
         final status = res.data['status'] as String?;
         final processed = (res.data['processedIpos'] as num?)?.toInt() ?? 0;
-        final total = (res.data['totalIpos'] as num?)?.toInt() ?? state.totalIpos;
+        final total =
+            (res.data['totalIpos'] as num?)?.toInt() ?? state.totalIpos;
 
         state = state.copyWith(
           processedIpos: processed,
@@ -136,16 +158,24 @@ class RefreshJobNotifier extends Notifier<RefreshJobState> {
           state = state.copyWith(
             isRefreshing: false,
             activeJobId: null,
-            statusMessage: status == 'COMPLETED' ? 'Allotment scan up to date' : 'Scan completed with notices',
+            statusMessage: status == 'COMPLETED'
+                ? 'Allotment scan up to date'
+                : 'Scan completed with notices',
           );
           ref.read(ipoListProvider.notifier).fetchIposAndSummary(silent: true);
         }
       } catch (e) {
         timer.cancel();
+        if (!_isCurrent(session)) return;
         state = state.copyWith(isRefreshing: false, activeJobId: null);
+      } finally {
+        polling = false;
       }
     });
   }
 }
 
-final refreshJobProvider = NotifierProvider<RefreshJobNotifier, RefreshJobState>(RefreshJobNotifier.new);
+final refreshJobProvider =
+    NotifierProvider<RefreshJobNotifier, RefreshJobState>(
+      RefreshJobNotifier.new,
+    );

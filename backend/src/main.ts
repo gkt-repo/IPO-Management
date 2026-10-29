@@ -7,6 +7,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
 
+  // Only honor forwarded IPs behind an explicitly configured reverse proxy.
+  const trustedProxy = process.env.TRUST_PROXY;
+  if (trustedProxy) {
+    app.getHttpAdapter().getInstance().set('trust proxy',
+      /^\d+$/.test(trustedProxy) ? Number(trustedProxy) : trustedProxy);
+  }
+
   // CORS configuration
   app.enableCors({
     origin: '*',

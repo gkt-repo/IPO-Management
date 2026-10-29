@@ -4,6 +4,8 @@ import { PeekService } from '../peek/peek.service';
 import { MarketPriceService } from './market-price.service';
 import { AllotmentStatus, IssueType } from '@prisma/client';
 import { biddingTime, ipoLifecycle } from './ipo-lifecycle';
+import { CatalogueService } from './catalogue.service';
+import { companyKey } from './catalogue-parser';
 
 @Injectable()
 export class IpoService implements OnModuleInit {
@@ -13,6 +15,7 @@ export class IpoService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly peekService: PeekService,
     private readonly marketPriceService: MarketPriceService,
+    private readonly catalogueService: CatalogueService,
   ) {}
 
   async onModuleInit() {
@@ -22,14 +25,15 @@ export class IpoService implements OnModuleInit {
       this.logger.warn(`Legacy schedule repair deferred: ${err.message}`);
     }
 
-    this.syncDynamicCatalogues().catch((err) => {
-      this.logger.warn(`Initial catalogue discovery sync: ${err.message}`);
-    });
-
-    this.marketPriceService.syncListingPrices().catch((err) => {
-      this.logger.warn(`Initial exchange listing price sync error: ${err.message}`);
-    });
+    // Start schedule refresh independently of registrar availability. Identity
+    // discovery follows it to avoid duplicate records; then sync listed prices.
+    this.catalogueService.start()
+      .then(() => this.syncDynamicCatalogues())
+      .then(() => this.marketPriceService.syncListingPrices())
+      .catch((err) => this.logger.warn(`Initial catalogue sync: ${err.message}`));
   }
+
+  getCatalogueStatus() { return this.catalogueService.getStatus(); }
 
   /** Repair only exact legacy seed schedules; never overwrite imported schedules. */
   async repairLegacySchedules() {
@@ -74,6 +78,7 @@ export class IpoService implements OnModuleInit {
     ]);
 
     const allDiscovered = [...mufgIpos, ...kfinIpos];
+    const existing = await this.prisma.iPO.findMany();
 
     for (const item of allDiscovered) {
       const slug = item.name
@@ -82,26 +87,26 @@ export class IpoService implements OnModuleInit {
         .replace(/^-+|-+$/g, '');
 
       try {
-        await this.prisma.iPO.upsert({
-          where: { slug },
-          update: {
-            externalId: item.externalId,
-            registrar: item.registrar,
-            officialVerificationUrl: item.officialVerificationUrl,
-            isActive: true,
-          },
-          create: {
-            externalId: item.externalId,
-            name: item.name,
-            slug,
+        const match = existing.find((ipo) =>
+          ipo.externalId === item.externalId || companyKey(ipo.name) === companyKey(item.name),
+        );
+        const identity = {
+          externalId: item.externalId,
+          registrar: item.registrar,
+          officialVerificationUrl: item.officialVerificationUrl,
+        };
+        if (match) {
+          await this.prisma.iPO.update({ where: { id: match.id }, data: identity });
+        } else {
+          const created = await this.prisma.iPO.create({ data: {
+            ...identity, name: item.name, slug,
             issueType: item.issueType === 'SME' ? IssueType.SME : IssueType.MAINBOARD,
-            registrar: item.registrar,
-            officialVerificationUrl: item.officialVerificationUrl,
             isActive: true,
-          },
-        });
+          } });
+          existing.push(created);
+        }
       } catch (err) {
-        // Continue silently if single item conflicts
+        this.logger.warn(`Registrar identity sync failed for ${item.name}`);
       }
     }
   }
@@ -110,6 +115,7 @@ export class IpoService implements OnModuleInit {
    * List recent IPOs with the authenticated user's current allotment status for each.
    */
   async listIpos(userId: string, filter?: { status?: string; issueType?: string; search?: string }) {
+    void this.catalogueService.refreshIfDue();
     const savedPan = await this.prisma.savedPan.findUnique({
       where: { userId },
       select: { id: true },

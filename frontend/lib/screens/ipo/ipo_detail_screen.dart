@@ -22,7 +22,7 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
   bool _isLoading = true;
   IpoItemModel? _ipo;
   String? _maskedPan;
-  AllotmentStatusEnum _currentStatus = AllotmentStatusEnum.pending;
+  AllotmentStatusEnum _currentStatus = AllotmentStatusEnum.notApplied;
   int? _allottedQuantity;
   DateTime? _lastCheckedAt;
   String? _diagnosticMessage;
@@ -45,9 +45,14 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
       final checkData = res.data['currentCheck'];
       final historyData = res.data['history'] as List? ?? [];
 
+      if (!mounted) return;
       setState(() {
         _ipo = IpoItemModel.fromJson(ipoData);
         _maskedPan = panData?['masked'] as String?;
+        _currentStatus = AllotmentStatusEnum.notApplied;
+        _allottedQuantity = null;
+        _lastCheckedAt = null;
+        _diagnosticMessage = null;
         if (checkData != null) {
           _currentStatus = parseAllotmentStatus(checkData['status'] as String?);
           _allottedQuantity = checkData['allottedQuantity'] as int?;
@@ -61,6 +66,7 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = 'Failed to load IPO details';
@@ -76,7 +82,6 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
       context.push('/webview', extra: {
         'url': urlStr,
         'title': '${_ipo?.registrar ?? "Registrar"} Allotment Portal',
-        'pan': _maskedPan ?? '',
       });
     }
   }
@@ -110,7 +115,7 @@ class _IpoDetailScreenState extends ConsumerState<IpoDetailScreen> {
         fg = AppColors.warning;
         icon = Icons.hourglass_top_rounded;
         title = 'Allotment Pending';
-        sub = 'Registrar has not yet published final allotment results for this issue.';
+        sub = 'Your allotment result is not confirmed yet. Verify it on the registrar portal.';
         break;
       case AllotmentStatusEnum.lookupFailed:
         bg = AppColors.error.withValues(alpha: 0.12);

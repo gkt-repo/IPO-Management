@@ -42,3 +42,21 @@ def test_mufg_share_parser_not_allotted():
     adapter = LinkIntimeAdapter()
     result = adapter._parse_result([{"Name": "Test", "Alloted_Shares": "0"}])
     assert result.status is AllotmentStatus.NOT_ALLOTTED
+
+
+@pytest.mark.parametrize('value', [None, '', 'pending', '-1', '5oops'])
+def test_kfin_incomplete_share_count_is_failure(value):
+    result = KFintechAdapter._parse({'data': [{'App_Shares': '50', 'All_Shares': value}]})
+    assert result.status is AllotmentStatus.LOOKUP_FAILED
+
+
+@pytest.mark.parametrize('payload', ['', 'Maintenance', '<html>Error</html>', '<NewDataSet><Error>Unavailable</Error></NewDataSet>'])
+def test_mufg_unrecognized_payload_is_failure(payload):
+    with pytest.raises(ValueError):
+        parse_dataset(payload)
+
+
+@pytest.mark.parametrize('value', ['', 'pending', '-1', '5oops'])
+def test_mufg_invalid_share_count_is_failure(value):
+    result = LinkIntimeAdapter._parse_result([{'ALLOT': value}])
+    assert result.status is AllotmentStatus.LOOKUP_FAILED

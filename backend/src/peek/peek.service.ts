@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { AllotmentStatus } from '@prisma/client';
 
 export interface RegistrarCheckResult {
@@ -150,12 +151,30 @@ export class PeekService {
       status = AllotmentStatus.LOOKUP_FAILED;
     }
 
+    const quantity = this.shareCount(data.shares_allotted);
+    if (status === AllotmentStatus.ALLOTTED && (quantity === null || quantity === 0)) {
+      return this.invalidResponse('PEEK_SERVICE');
+    }
     return {
       status,
-      sharesAllotted: data.shares_allotted != null ? Number(data.shares_allotted) : null,
+      sharesAllotted: quantity,
       message: data.message || 'Lookup completed',
       source: `PEEK_${data.registrar || 'REGISTRAR'}`.toUpperCase(),
     };
+  }
+
+  private shareCount(value: unknown): number | null {
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    const text = String(value).trim();
+    if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)$/.test(text)) return null;
+    const count = Number(text.replace(/,/g, ''));
+    return Number.isSafeInteger(count) && count >= 0 ? count : null;
+  }
+
+  private invalidResponse(source: string): RegistrarCheckResult {
+    return { status: AllotmentStatus.LOOKUP_FAILED, sharesAllotted: null,
+      message: 'Registrar returned an unrecognized or incomplete result. Please retry or verify on its official portal.',
+      source, errorCode: 'INVALID_RESPONSE' };
   }
 
   /**
@@ -204,7 +223,7 @@ export class PeekService {
         if (res.status === 404) {
           const errJson = await res.json().catch(() => null);
           const errStr = JSON.stringify(errJson || '').toLowerCase();
-          if (errStr.includes('record not found') || errStr.includes('no record') || !errJson) {
+          if (errStr.includes('record not found') || errStr.includes('no record')) {
             return {
               status: AllotmentStatus.NOT_ALLOTTED,
               sharesAllotted: 0,
@@ -225,7 +244,8 @@ export class PeekService {
       const json = await res.json();
       const records = json?.data;
 
-      if (!records || !Array.isArray(records) || records.length === 0) {
+      if (!Array.isArray(records)) return this.invalidResponse('KFINTECH_NATIVE');
+      if (records.length === 0) {
         // Record not found / not applied
         return {
           status: AllotmentStatus.NOT_ALLOTTED,
@@ -236,8 +256,8 @@ export class PeekService {
       }
 
       const rec = records[0];
-      const allottedRaw = rec.All_Shares;
-      const allotted = parseInt(String(allottedRaw || '0').replace(/,/g, ''), 10) || 0;
+      const allotted = this.shareCount(rec?.All_Shares);
+      if (allotted === null) return this.invalidResponse('KFINTECH_NATIVE');
 
       if (allotted > 0) {
         return {
@@ -313,29 +333,18 @@ export class PeekService {
       }
 
       const json = await res.json();
-      const rawXml = json?.d || '';
-
-      if (!rawXml || !rawXml.includes('<NewDataSet')) {
-        return {
-          status: AllotmentStatus.NOT_ALLOTTED,
-          sharesAllotted: 0,
-          message: 'No allotment record found for this PAN.',
-          source: 'MUFG_NATIVE',
-        };
+      const rawXml = typeof json?.d === 'string' ? json.d.trim() : '';
+      if (XMLValidator.validate(rawXml) !== true) return this.invalidResponse('MUFG_NATIVE');
+      const parsed = new XMLParser({ parseTagValue: false, processEntities: false }).parse(rawXml);
+      if (!Object.hasOwn(parsed, 'NewDataSet')) return this.invalidResponse('MUFG_NATIVE');
+      const dataset = parsed.NewDataSet;
+      if (dataset === '') {
+        return { status: AllotmentStatus.NOT_ALLOTTED, sharesAllotted: 0,
+          message: 'No allotment record found for this PAN.', source: 'MUFG_NATIVE' };
       }
-
-      // Check XML for ALLOT tag e.g. <ALLOT>273</ALLOT> or <ALLOT>0</ALLOT>
-      const allotMatch = rawXml.match(/<ALLOT>(\d+)<\/ALLOT>/i);
-      if (!allotMatch) {
-        return {
-          status: AllotmentStatus.NOT_ALLOTTED,
-          sharesAllotted: 0,
-          message: 'No shares allotted for this application.',
-          source: 'MUFG_NATIVE',
-        };
-      }
-
-      const allotted = parseInt(allotMatch[1], 10) || 0;
+      const row = Array.isArray(dataset?.Table) ? dataset.Table[0] : dataset?.Table;
+      const allotted = this.shareCount(row?.ALLOT);
+      if (allotted === null) return this.invalidResponse('MUFG_NATIVE');
       if (allotted > 0) {
         return {
           status: AllotmentStatus.ALLOTTED,
@@ -370,6 +379,7 @@ export class PeekService {
   async discoverMufgIpos(): Promise<DiscoveredIPO[]> {
     try {
       const res = await fetch('https://in.mpms.mufg.com/Initial_Offer/IPO.aspx/GetDetails', {
+        signal: AbortSignal.timeout(15_000),
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -414,6 +424,7 @@ export class PeekService {
   async discoverKFintechIpos(): Promise<DiscoveredIPO[]> {
     try {
       const pageRes = await fetch('https://ipostatus.kfintech.com/', {
+        signal: AbortSignal.timeout(15_000),
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         },
@@ -425,6 +436,7 @@ export class PeekService {
 
       const bundleUrl = `https://ipostatus.kfintech.com/${bundleMatch[1]}`;
       const bundleRes = await fetch(bundleUrl, {
+        signal: AbortSignal.timeout(15_000),
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
           'Referer': 'https://ipostatus.kfintech.com/',

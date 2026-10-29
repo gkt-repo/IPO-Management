@@ -18,6 +18,11 @@ export class IpoController {
     return this.ipoService.listIpos(user.id, { status, issueType, search });
   }
 
+  @Get('catalogue-status')
+  getCatalogueStatus() {
+    return this.ipoService.getCatalogueStatus();
+  }
+
   @Get('dashboard')
   async getDashboardSummary(@CurrentUser() user: { id: string }) {
     return this.ipoService.getDashboardSummary(user.id);

@@ -1,18 +1,17 @@
-import {
-  Injectable,
-  Logger,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { AllotmentStatus, JobStatus, IPO } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PanService } from '../pan/pan.service';
-import { PeekService } from '../peek/peek.service';
-import { AllotmentStatus, JobStatus } from '@prisma/client';
+import { PeekService, RegistrarCheckResult } from '../peek/peek.service';
+import { lockUser } from '../common/user-lock';
+
+const ACTIVE = [JobStatus.QUEUED, JobStatus.IN_PROGRESS];
+const LEASE_MS = 2 * 60_000;
 
 @Injectable()
-export class RefreshService {
+export class RefreshService implements OnModuleInit {
   private readonly logger = new Logger(RefreshService.name);
-  private readonly COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes cooldown
+  private readonly COOLDOWN_MS = 5 * 60_000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -20,314 +19,149 @@ export class RefreshService {
     private readonly peekService: PeekService,
   ) {}
 
-  /**
-   * Trigger an allotment refresh job for the authenticated user.
-   */
+  async onModuleInit() {
+    // Only expire abandoned leases, so another backend's active work survives.
+    try { await this.expireJobs(); }
+    catch { this.logger.warn('Refresh recovery deferred until the database is available'); }
+  }
+
+  private expireJobs(userId?: string) {
+    return this.prisma.refreshJob.updateMany({
+      where: { userId, status: { in: ACTIVE }, heartbeatAt: { lt: new Date(Date.now() - LEASE_MS) } },
+      data: { status: JobStatus.FAILED, completedAt: new Date(), errorSummary: 'Refresh interrupted or timed out. Please retry.' },
+    });
+  }
+
   async triggerRefresh(userId: string, force = false) {
-    // 1. Verify user has a saved PAN
-    const savedPan = await this.panService.getDecryptedPanForInternalJob(userId);
-    if (!savedPan) {
-      throw new BadRequestException('Please save your PAN card before running an allotment refresh');
-    }
-
-    // 2. Check for deduplication: any running or queued job for this user?
-    const existingJob = await this.prisma.refreshJob.findFirst({
-      where: {
-        userId,
-        status: { in: [JobStatus.QUEUED, JobStatus.IN_PROGRESS] },
-      },
-      orderBy: { startedAt: 'desc' },
-    });
-
-    if (existingJob) {
-      return {
-        jobId: existingJob.id,
-        status: existingJob.status,
-        message: 'A refresh job is already in progress.',
-        isDuplicate: true,
-      };
-    }
-
-    // 3. Fetch ONLY IPOs marked as applied by this user that are NOT already ALLOTTED
-    // Rule: "do not check again for alloated one , once allowted then it is always allowted"
-    // Rule: "if any one is marked for applied , and that one was lookup failed or pending , then on all refresh the backend try to get data (update) until it shows"
-    const appliedChecks = await this.prisma.allotmentCheck.findMany({
-      where: {
-        savedPanId: savedPan.id,
-        hasApplied: true,
-        status: { not: AllotmentStatus.ALLOTTED },
-      },
-      include: { ipo: true },
-    });
-
-    const checks = appliedChecks || [];
-    const eligibleIpos = checks
-      .map((c) => c.ipo)
-      .filter((ipo) => ipo && ipo.isActive);
-
-    // If all applied IPOs are already settled and up to date, check cooldown
-    const hasUnresolvedChecks = checks.some(
-      (c) => c.status === AllotmentStatus.LOOKUP_FAILED || c.status === AllotmentStatus.PENDING,
-    );
-
-    if (!force && !hasUnresolvedChecks) {
-      const lastCompletedJob = await this.prisma.refreshJob.findFirst({
-        where: {
-          userId,
-          status: JobStatus.COMPLETED,
-        },
-        orderBy: { completedAt: 'desc' },
+    await this.expireJobs(userId);
+    let work: { jobId: string; panId: string; rawPan: string; ipos: IPO[] } | undefined;
+    const response = await this.prisma.$transaction(async (tx) => {
+      await lockUser(tx, userId);
+      const pan = await this.panService.getDecryptedPanForInternalJob(userId, tx);
+      if (!pan) throw new BadRequestException('Please save your PAN card before running an allotment refresh');
+      const existing = await tx.refreshJob.findFirst({
+        where: { userId, status: { in: ACTIVE } }, orderBy: { startedAt: 'desc' },
       });
+      if (existing) return {
+        jobId: existing.id, status: existing.status, totalIpos: existing.totalIpos,
+        message: 'A refresh job is already in progress.', isDuplicate: true,
+      };
+      const checks = await tx.allotmentCheck.findMany({
+        where: { savedPanId: pan.id, hasApplied: true, status: { not: AllotmentStatus.ALLOTTED } },
+        include: { ipo: true },
+      });
+      const ipos = checks.filter(c => c.ipo.isActive).map(c => c.ipo);
+      const unresolved = checks.some(c => c.status === 'PENDING' || c.status === 'LOOKUP_FAILED');
+      if (!force && !unresolved) {
+        const last = await tx.refreshJob.findFirst({
+          where: { userId, status: JobStatus.COMPLETED }, orderBy: { completedAt: 'desc' },
+        });
+        const remaining = last?.completedAt ? this.COOLDOWN_MS - (Date.now() - last.completedAt.getTime()) : 0;
+        if (remaining > 0) return {
+          jobId: last!.id, status: JobStatus.COMPLETED,
+          message: 'Recent refresh completed.', cooldownRemainingSeconds: Math.ceil(remaining / 1000),
+        };
+      }
+      const job = await tx.refreshJob.create({ data: {
+        userId, status: ipos.length ? JobStatus.QUEUED : JobStatus.COMPLETED,
+        totalIpos: ipos.length, heartbeatAt: new Date(),
+        completedAt: ipos.length ? null : new Date(),
+      } });
+      if (ipos.length) work = { jobId: job.id, panId: pan.id, rawPan: pan.rawPan, ipos };
+      return {
+        jobId: job.id, status: job.status, totalIpos: ipos.length,
+        message: ipos.length ? 'Allotment refresh started in background.' : 'All applied IPOs are up to date. No pending scans needed.',
+      };
+    });
+    // Never dispatch work until the admission transaction has committed.
+    if (work) {
+      const { jobId, panId, rawPan, ipos } = work;
+      setImmediate(() => { void this.executeRefreshJob(jobId, userId, panId, rawPan, ipos); });
+    }
+    return response;
+  }
 
-      if (lastCompletedJob && lastCompletedJob.completedAt) {
-        const timeSince = Date.now() - new Date(lastCompletedJob.completedAt).getTime();
-        if (timeSince < this.COOLDOWN_MS) {
-          const remainingSec = Math.ceil((this.COOLDOWN_MS - timeSince) / 1000);
-          return {
-            jobId: lastCompletedJob.id,
-            status: JobStatus.COMPLETED,
-            message: `Recent refresh completed. Next automatic refresh available in ${remainingSec} seconds.`,
-            cooldownRemainingSeconds: remainingSec,
-          };
-        }
+  async getJobProgress(jobId: string, userId: string) {
+    await this.expireJobs(userId);
+    const job = await this.prisma.refreshJob.findFirst({ where: { id: jobId, userId } });
+    if (!job) throw new NotFoundException('Refresh job not found');
+    return job;
+  }
+
+  private async persistResult(jobId: string, userId: string, savedPanId: string, ipoId: string, result: RegistrarCheckResult) {
+    return this.prisma.$transaction(async (tx) => {
+      await lockUser(tx, userId);
+      // Fence expired/cancelled workers before they can write any results.
+      const active = await tx.refreshJob.updateMany({
+        where: { id: jobId, status: JobStatus.IN_PROGRESS, heartbeatAt: { gte: new Date(Date.now() - LEASE_MS) } },
+        data: { heartbeatAt: new Date() },
+      });
+      if (!active.count) return false;
+      const pan = await tx.savedPan.findUnique({ where: { userId }, select: { id: true } });
+      if (pan?.id !== savedPanId) return false;
+      const changed = await tx.allotmentCheck.updateMany({
+        where: { savedPanId, ipoId, hasApplied: true, status: { not: AllotmentStatus.ALLOTTED } },
+        data: {
+          status: result.status, allottedQuantity: result.sharesAllotted,
+          latestAttemptStatus: result.status, source: result.source, checkedAt: new Date(),
+          errorCode: result.errorCode ?? null, diagnosticMessage: result.message,
+        },
+      });
+      if (!changed.count) return false;
+      await tx.allotmentHistory.create({ data: {
+        savedPanId, ipoId, status: result.status, allottedQuantity: result.sharesAllotted,
+        source: result.source, errorCode: result.errorCode ?? null, diagnosticMessage: result.message,
+      } });
+      return true;
+    });
+  }
+
+  private async executeRefreshJob(jobId: string, userId: string, savedPanId: string, rawPan: string, ipos: IPO[]) {
+    try {
+      const claimed = await this.prisma.refreshJob.updateMany({
+        where: { id: jobId, status: JobStatus.QUEUED, heartbeatAt: { gte: new Date(Date.now() - LEASE_MS) } },
+        data: { status: JobStatus.IN_PROGRESS, heartbeatAt: new Date() },
+      });
+      if (!claimed.count) return;
+      let processedIpos = 0, allottedCount = 0, notAllottedCount = 0, pendingCount = 0, failedCount = 0;
+      for (let i = 0; i < ipos.length; i += 3) {
+        await Promise.all(ipos.slice(i, i + 3).map(async ipo => {
+          try {
+            const check = await this.prisma.allotmentCheck.findUnique({
+              where: { savedPanId_ipoId: { savedPanId, ipoId: ipo.id } },
+            });
+            if (!check?.hasApplied) return;
+            if (check.status === AllotmentStatus.ALLOTTED) { allottedCount++; return; }
+            const result = await this.peekService.checkAllotment(rawPan, ipo.name, ipo.registrar, ipo.externalId ?? undefined);
+            if (!await this.persistResult(jobId, userId, savedPanId, ipo.id, result)) return;
+            if (result.status === AllotmentStatus.ALLOTTED) allottedCount++;
+            else if (result.status === AllotmentStatus.NOT_ALLOTTED) notAllottedCount++;
+            else if (result.status === AllotmentStatus.PENDING) pendingCount++;
+            else failedCount++;
+          } catch {
+            failedCount++;
+          } finally { processedIpos++; }
+        }));
+        const progress = await this.prisma.refreshJob.updateMany({
+          where: { id: jobId, status: JobStatus.IN_PROGRESS, heartbeatAt: { gte: new Date(Date.now() - LEASE_MS) } },
+          data: { processedIpos, allottedCount, notAllottedCount, pendingCount, failedCount, heartbeatAt: new Date() },
+        });
+        if (!progress.count) return;
+      }
+      await this.prisma.refreshJob.updateMany({
+        where: { id: jobId, status: JobStatus.IN_PROGRESS },
+        data: { status: JobStatus.COMPLETED, completedAt: new Date() },
+      });
+    } catch {
+      try {
+        await this.prisma.refreshJob.updateMany({
+          where: { id: jobId, status: { in: ACTIVE } },
+          data: { status: JobStatus.FAILED, completedAt: new Date(), errorSummary: 'Refresh interrupted. Please retry.' },
+        });
+      } catch {
+        // If the database is down, lease expiry makes the next request recoverable.
+        this.logger.warn(`Refresh job ${jobId} will be recovered when its lease expires`);
       }
     }
-
-    if (eligibleIpos.length === 0) {
-      const completedJob = await this.prisma.refreshJob.create({
-        data: {
-          userId,
-          status: JobStatus.COMPLETED,
-          totalIpos: 0,
-          processedIpos: 0,
-          allottedCount: 0,
-          notAllottedCount: 0,
-          pendingCount: 0,
-          failedCount: 0,
-          completedAt: new Date(),
-        },
-      });
-
-      return {
-        jobId: completedJob.id,
-        status: JobStatus.COMPLETED,
-        message: 'All applied IPOs are up to date. No pending scans needed.',
-        cooldownRemainingSeconds: 0,
-      };
-    }
-
-    // 5. Create RefreshJob record
-    const job = await this.prisma.refreshJob.create({
-      data: {
-        userId,
-        status: JobStatus.QUEUED,
-        totalIpos: eligibleIpos.length,
-        processedIpos: 0,
-        startedAt: new Date(),
-      },
-    });
-
-    // 6. Launch background execution asynchronously (never block HTTP response)
-    setImmediate(() => {
-      this.executeRefreshJob(job.id, userId, savedPan.id, savedPan.rawPan, eligibleIpos)
-        .catch((err) => {
-          this.logger.error(`Error in refresh job ${job.id}: ${err.message}`, err.stack);
-        });
-    });
-
-    return {
-      jobId: job.id,
-      status: JobStatus.QUEUED,
-      totalIpos: eligibleIpos.length,
-      message: 'Allotment refresh started in background.',
-    };
-  }
-
-  /**
-   * Retrieve progress and stats of a given refresh job.
-   */
-  async getJobProgress(jobId: string, userId: string) {
-    const job = await this.prisma.refreshJob.findFirst({
-      where: { id: jobId, userId },
-    });
-
-    if (!job) {
-      throw new NotFoundException('Refresh job not found');
-    }
-
-    return {
-      id: job.id,
-      status: job.status,
-      totalIpos: job.totalIpos,
-      processedIpos: job.processedIpos,
-      allottedCount: job.allottedCount,
-      notAllottedCount: job.notAllottedCount,
-      pendingCount: job.pendingCount,
-      failedCount: job.failedCount,
-      startedAt: job.startedAt,
-      completedAt: job.completedAt,
-      errorSummary: job.errorSummary,
-    };
-  }
-
-  /**
-   * Internal asynchronous worker for executing allotment checks across eligible IPOs.
-   * Uses bounded concurrency (3 concurrent requests) to respect registrar limits.
-   */
-  private async executeRefreshJob(
-    jobId: string,
-    userId: string,
-    savedPanId: string,
-    rawPan: string,
-    ipos: any[],
-  ) {
-    await this.prisma.refreshJob.update({
-      where: { id: jobId },
-      data: { status: JobStatus.IN_PROGRESS },
-    });
-
-    let processed = 0;
-    let allottedCount = 0;
-    let notAllottedCount = 0;
-    let pendingCount = 0;
-    let failedCount = 0;
-
-    // Bounded concurrency batching: max 3 at a time
-    const BATCH_SIZE = 3;
-    for (let i = 0; i < ipos.length; i += BATCH_SIZE) {
-      const batch = ipos.slice(i, i + BATCH_SIZE);
-
-      await Promise.all(
-        batch.map(async (ipo) => {
-          try {
-            // Check existing check record in our own database
-            const existingCheck = await this.prisma.allotmentCheck.findUnique({
-              where: {
-                savedPanId_ipoId: {
-                  savedPanId,
-                  ipoId: ipo.id,
-                },
-              },
-            });
-
-            // Fast DB Cache Rule 1: Once confirmed ALLOTTED in our database, reuse it immediately!
-            // Allotments are final and permanent. Bypassing external scrapers speeds up refresh by 10x.
-            if (existingCheck && existingCheck.status === AllotmentStatus.ALLOTTED) {
-              this.logger.log(`[Fast DB] Preserved confirmed ALLOTTED status from DB for "${ipo.name}" (${existingCheck.allottedQuantity} shares)`);
-              allottedCount++;
-              return;
-            }
-
-            // Fast DB Cache Rule 2: If the IPO was listed > 3 days ago and has a confirmed NOT_ALLOTTED in DB,
-            // reuse the stored database result instead of hitting external scrapers that may fail or require CAPTCHA.
-            const isSettledHistorical = ipo.listingDate && (Date.now() - new Date(ipo.listingDate).getTime() > 3 * 24 * 3600 * 1000);
-            if (isSettledHistorical && existingCheck && existingCheck.status === AllotmentStatus.NOT_ALLOTTED) {
-              this.logger.log(`[Fast DB] Reusing settled NOT_ALLOTTED status from DB for "${ipo.name}"`);
-              notAllottedCount++;
-              return;
-            }
-
-            // Perform live check via PeekService for pending or new IPOs
-            const result = await this.peekService.checkAllotment(
-              rawPan,
-              ipo.name,
-              ipo.registrar,
-              ipo.externalId,
-            );
-
-            // Determine confirmed status:
-            // CRITICAL RULE: If previous status was ALLOTTED, never degrade to LOOKUP_FAILED on network glitch!
-            let newConfirmedStatus = result.status;
-            let newAllottedQuantity = result.sharesAllotted;
-
-            if (existingCheck && existingCheck.status === AllotmentStatus.ALLOTTED) {
-              if (result.status === AllotmentStatus.LOOKUP_FAILED || result.status === AllotmentStatus.PENDING) {
-                newConfirmedStatus = AllotmentStatus.ALLOTTED;
-                newAllottedQuantity = existingCheck.allottedQuantity;
-              }
-            }
-
-            // Upsert AllotmentCheck
-            await this.prisma.allotmentCheck.upsert({
-              where: {
-                savedPanId_ipoId: {
-                  savedPanId,
-                  ipoId: ipo.id,
-                },
-              },
-              update: {
-                status: newConfirmedStatus,
-                allottedQuantity: newAllottedQuantity,
-                latestAttemptStatus: result.status,
-                source: result.source,
-                checkedAt: new Date(),
-                errorCode: result.errorCode || null,
-                diagnosticMessage: result.message,
-              },
-              create: {
-                savedPanId,
-                ipoId: ipo.id,
-                status: newConfirmedStatus,
-                allottedQuantity: newAllottedQuantity,
-                latestAttemptStatus: result.status,
-                source: result.source,
-                checkedAt: new Date(),
-                errorCode: result.errorCode || null,
-                diagnosticMessage: result.message,
-              },
-            });
-
-            // Record history item
-            await this.prisma.allotmentHistory.create({
-              data: {
-                savedPanId,
-                ipoId: ipo.id,
-                status: result.status,
-                allottedQuantity: result.sharesAllotted,
-                source: result.source,
-                errorCode: result.errorCode || null,
-                diagnosticMessage: result.message,
-                timestamp: new Date(),
-              },
-            });
-
-            // Update local counters
-            if (newConfirmedStatus === AllotmentStatus.ALLOTTED) allottedCount++;
-            else if (newConfirmedStatus === AllotmentStatus.NOT_ALLOTTED) notAllottedCount++;
-            else if (newConfirmedStatus === AllotmentStatus.PENDING) pendingCount++;
-            else if (newConfirmedStatus === AllotmentStatus.LOOKUP_FAILED) failedCount++;
-          } catch (err: any) {
-            this.logger.warn(`Failed checking IPO ${ipo.name}: ${err.message}`);
-            failedCount++;
-          } finally {
-            processed++;
-          }
-        }),
-      );
-
-      // Update progress in DB after each batch
-      await this.prisma.refreshJob.update({
-        where: { id: jobId },
-        data: {
-          processedIpos: processed,
-          allottedCount,
-          notAllottedCount,
-          pendingCount,
-          failedCount,
-        },
-      });
-    }
-
-    // Mark job as completed
-    await this.prisma.refreshJob.update({
-      where: { id: jobId },
-      data: {
-        status: JobStatus.COMPLETED,
-        completedAt: new Date(),
-        processedIpos: processed,
-      },
-    });
-
-    this.logger.log(`Refresh job ${jobId} finished: ${processed}/${ipos.length} IPOs checked.`);
   }
 }

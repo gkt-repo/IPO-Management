@@ -90,7 +90,7 @@ This will automatically:
 3. Start isolated PostgreSQL 16 on `ipo_network`.
 4. Wait for PostgreSQL readiness.
 5. Push the Prisma relational schema and foreign keys.
-6. Seed recent Mainboard & SME IPOs and initialize dynamic discovery.
+6. Import dated Mainboard/SME IPO schedules and refresh them every 15 minutes; discover registrar identifiers separately.
 
 Verify containers:
 ```bash
@@ -176,3 +176,21 @@ Restarting the backend or reopening the old APK does not change its API address.
    `PAN_ENCRYPTION_KEY` and `PAN_HMAC_KEY` should be securely backed up in a password manager. If lost, previously encrypted PANs cannot be decrypted.
 3. **Logs**:
    Raw PAN values and sensitive external provider response payloads are strictly scrubbed by application logic and never printed to Docker logs.
+
+
+## Deploy only a catalogue/backend fix
+
+Back up the IPO database on the VM before catalogue repairs, preserving a private
+backup directory. Then rebuild only the IPO application:
+
+```bash
+cd ~/IPO
+docker compose build ipo_app
+docker compose up -d --no-deps ipo_app
+docker compose logs --tail=80 ipo_app
+```
+
+Look for `Catalogue refreshed` and check authenticated `GET /api/ipo/catalogue-status`.
+A source outage should leave existing schedules intact. The automatic importer runs
+on startup and every 15 minutes. No database schema migration is needed for schedule
+metadata. Reopen the app or pull to refresh to discard old in-memory schedules.

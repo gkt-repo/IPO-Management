@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'account_session_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/api/api_client.dart';
@@ -190,17 +191,27 @@ class IpoListNotifier extends Notifier<IpoListState> {
 
   @override
   IpoListState build() {
+    ref.watch(accountSessionProvider);
     return IpoListState.initial();
   }
 
+  bool _isCurrent(AccountSession session) =>
+      ref.mounted && identical(ref.read(accountSessionProvider), session);
+
   Future<void> fetchIposAndSummary({bool silent = false}) async {
+    final session = ref.read(accountSessionProvider);
+    final userId = session.userId;
+    if (userId == null) return;
     // Fast local database cache: load instantly if in-memory list is empty
     if (state.ipos.isEmpty) {
       try {
-        final cachedIposRaw = await _storage.read(key: 'cached_ipos_list');
-        final cachedSummaryRaw = await _storage.read(
-          key: 'cached_dashboard_summary',
+        final cachedIposRaw = await _storage.read(
+          key: 'cached_ipos_list:$userId',
         );
+        final cachedSummaryRaw = await _storage.read(
+          key: 'cached_dashboard_summary:$userId',
+        );
+        if (!_isCurrent(session)) return;
         if (cachedIposRaw != null && cachedIposRaw.isNotEmpty) {
           final ipoJson = jsonDecode(cachedIposRaw) as List;
           final cachedList = ipoJson
@@ -223,43 +234,55 @@ class IpoListNotifier extends Notifier<IpoListState> {
       }
     }
 
+    if (!_isCurrent(session)) return;
     if (!silent && state.ipos.isEmpty) {
       state = state.copyWith(isLoading: true, errorMessage: null);
     }
 
     try {
-      final summaryRes = await _apiClient.dio.get(ApiConstants.dashboard);
-      final summary = DashboardSummaryModel.fromJson(summaryRes.data);
-
+      // Schedule freshness must not depend on a successful portfolio request.
       final ipoRes = await _apiClient.dio.get(ApiConstants.ipoList);
+      if (!_isCurrent(session)) return;
       final list = (ipoRes.data as List)
           .map((i) => IpoItemModel.fromJson(i))
           .toList();
-
-      state = state.copyWith(isLoading: false, ipos: list, summary: summary);
-
-      // Persist to local database cache for instant 0ms startup
-      _storage
+      state = state.copyWith(isLoading: false, ipos: list);
+      await _storage
           .write(
-            key: 'cached_dashboard_summary',
-            value: jsonEncode(summaryRes.data),
+            key: 'cached_ipos_list:$userId',
+            value: jsonEncode(ipoRes.data),
           )
           .catchError((_) {});
-      _storage
-          .write(key: 'cached_ipos_list', value: jsonEncode(ipoRes.data))
-          .catchError((_) {});
-    } catch (e) {
-      // Only set error message if no local cache is available
-      if (state.ipos.isEmpty) {
+      try {
+        if (!_isCurrent(session)) return;
+        final summaryRes = await _apiClient.dio.get(ApiConstants.dashboard);
+        if (!_isCurrent(session)) return;
         state = state.copyWith(
-          isLoading: false,
-          errorMessage: 'Failed to load IPO data',
+          summary: DashboardSummaryModel.fromJson(summaryRes.data),
         );
+        await _storage
+            .write(
+              key: 'cached_dashboard_summary:$userId',
+              value: jsonEncode(summaryRes.data),
+            )
+            .catchError((_) {});
+      } catch (_) {
+        // The current catalogue remains usable if portfolio totals are unavailable.
       }
+    } catch (e) {
+      if (!_isCurrent(session)) return;
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: state.ipos.isEmpty
+            ? 'Failed to load IPO data'
+            : 'Could not refresh schedules. Showing saved data; dates may be outdated.',
+      );
     }
   }
 
   Future<void> toggleApplied(String ipoId) async {
+    final session = ref.read(accountSessionProvider);
+    if (session.userId == null) return;
     final updatedIpos = state.ipos.map((ipo) {
       if (ipo.id == ipoId) {
         if (ipo.status == AllotmentStatusEnum.allotted) return ipo;
@@ -280,6 +303,7 @@ class IpoListNotifier extends Notifier<IpoListState> {
       final res = await _apiClient.dio.post(
         '${ApiConstants.ipoList}/$ipoId/toggle-applied',
       );
+      if (!_isCurrent(session)) return;
       final data = res.data;
       if (data['hasApplied'] != null) {
         final bool confirmedApplied = data['hasApplied'];
@@ -297,10 +321,12 @@ class IpoListNotifier extends Notifier<IpoListState> {
 
       // Update dashboard summary counts
       final summaryRes = await _apiClient.dio.get(ApiConstants.dashboard);
+      if (!_isCurrent(session)) return;
       state = state.copyWith(
         summary: DashboardSummaryModel.fromJson(summaryRes.data),
       );
     } catch (_) {
+      if (!_isCurrent(session)) return;
       fetchIposAndSummary(silent: true);
     }
   }

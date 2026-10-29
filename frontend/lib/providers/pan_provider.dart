@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'account_session_provider.dart';
 import '../core/api/api_client.dart';
 import '../core/constants/api_constants.dart';
 import '../core/models/pan_model.dart';
@@ -31,7 +32,7 @@ class PanState {
     return PanState(
       isLoading: isLoading ?? this.isLoading,
       hasPan: hasPan ?? this.hasPan,
-      pan: pan ?? this.pan,
+      pan: hasPan == false ? null : pan ?? this.pan,
       errorMessage: errorMessage,
       replaceRequired: replaceRequired ?? this.replaceRequired,
     );
@@ -43,13 +44,20 @@ class PanNotifier extends Notifier<PanState> {
 
   @override
   PanState build() {
+    ref.watch(accountSessionProvider);
     return PanState.initial();
   }
 
+  bool _isCurrent(AccountSession session) =>
+      ref.mounted && identical(ref.read(accountSessionProvider), session);
+
   Future<void> fetchSavedPan() async {
+    final session = ref.read(accountSessionProvider);
+    if (session.userId == null) return;
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
       final res = await _apiClient.dio.get(ApiConstants.pan);
+      if (!_isCurrent(session)) return;
       final hasPan = res.data['hasPan'] as bool? ?? false;
       final panData = res.data['pan'];
       state = state.copyWith(
@@ -58,7 +66,11 @@ class PanNotifier extends Notifier<PanState> {
         pan: panData != null ? SavedPanModel.fromJson(panData) : null,
       );
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: 'Failed to fetch saved PAN');
+      if (!_isCurrent(session)) return;
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Failed to fetch saved PAN',
+      );
     }
   }
 
@@ -67,7 +79,13 @@ class PanNotifier extends Notifier<PanState> {
     required bool consent,
     bool confirmReplace = false,
   }) async {
-    state = state.copyWith(isLoading: true, errorMessage: null, replaceRequired: false);
+    final session = ref.read(accountSessionProvider);
+    if (session.userId == null) return false;
+    state = state.copyWith(
+      isLoading: true,
+      errorMessage: null,
+      replaceRequired: false,
+    );
     try {
       final res = await _apiClient.dio.post(
         ApiConstants.pan,
@@ -77,6 +95,7 @@ class PanNotifier extends Notifier<PanState> {
           'confirmReplace': confirmReplace,
         },
       );
+      if (!_isCurrent(session)) return false;
       final panModel = SavedPanModel.fromJson(res.data['pan']);
       state = state.copyWith(
         isLoading: false,
@@ -86,11 +105,13 @@ class PanNotifier extends Notifier<PanState> {
       );
       return true;
     } on DioException catch (e) {
+      if (!_isCurrent(session)) return false;
       if (e.response?.statusCode == 409) {
         state = state.copyWith(
           isLoading: false,
           replaceRequired: true,
-          errorMessage: 'A PAN is already linked to this account. Confirm replacement to proceed.',
+          errorMessage:
+              'A PAN is already linked to this account. Confirm replacement to proceed.',
         );
         return false;
       }
@@ -101,23 +122,30 @@ class PanNotifier extends Notifier<PanState> {
       );
       return false;
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: 'Unexpected error saving PAN');
+      if (!_isCurrent(session)) return false;
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Unexpected error saving PAN',
+      );
       return false;
     }
   }
 
   Future<bool> deletePan() async {
+    final session = ref.read(accountSessionProvider);
+    if (session.userId == null) return false;
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
       await _apiClient.dio.delete(ApiConstants.pan);
-      state = state.copyWith(
-        isLoading: false,
-        hasPan: false,
-        pan: null,
-      );
+      if (!_isCurrent(session)) return false;
+      state = state.copyWith(isLoading: false, hasPan: false, pan: null);
       return true;
     } catch (e) {
-      state = state.copyWith(isLoading: false, errorMessage: 'Failed to delete PAN');
+      if (!_isCurrent(session)) return false;
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: 'Failed to delete PAN',
+      );
       return false;
     }
   }

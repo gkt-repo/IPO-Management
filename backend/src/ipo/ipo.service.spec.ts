@@ -10,7 +10,7 @@ describe('IPO listing filters and legacy data repair', () => {
       iPO: { findMany: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       allotmentCheck: { updateMany: jest.fn() },
     };
-    service = new IpoService(prisma, { getOfficialRegistrarUrl: () => '' } as any, {} as any);
+    service = new IpoService(prisma, { getOfficialRegistrarUrl: () => '' } as any, {} as any, { refreshIfDue: jest.fn() } as any);
     const ipo = (id: string, open: string, close: string) => ({
       id, name: id, issueType: 'SME', openDate: new Date(open), closeDate: new Date(close),
       allotmentDate: new Date('2026-11-10'), listingDate: null, listingPrice: null,

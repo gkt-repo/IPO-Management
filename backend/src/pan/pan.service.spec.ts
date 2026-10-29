@@ -10,6 +10,8 @@ describe('PanService', () => {
 
   beforeEach(async () => {
     mockPrisma = {
+      $queryRaw: jest.fn(),
+      refreshJob: { updateMany: jest.fn() },
       savedPan: {
         findUnique: jest.fn(),
         create: jest.fn(),
@@ -61,8 +63,8 @@ describe('PanService', () => {
       panMasked: 'ABCDE****F',
     });
 
-    mockPrisma.savedPan.update.mockResolvedValue({
-      id: 'pan-1',
+    mockPrisma.savedPan.create.mockResolvedValue({
+      id: 'pan-new',
       panMasked: 'XYZPA****Q',
       consentGiven: true,
       createdAt: new Date(),
@@ -77,7 +79,12 @@ describe('PanService', () => {
 
     expect(result.message).toBe('PAN updated successfully');
     expect(result.pan.panMasked).toBe('XYZPA****Q');
-    expect(mockPrisma.allotmentCheck.deleteMany).toHaveBeenCalled();
+    expect(result.pan.id).toBe('pan-new');
+    expect(mockPrisma.savedPan.delete).toHaveBeenCalledWith({ where: { id: 'pan-1' } });
+    expect(mockPrisma.savedPan.update).not.toHaveBeenCalled();
+    expect(mockPrisma.refreshJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED' }),
+    }));
   });
 
   it('should create new PAN record if user has none', async () => {

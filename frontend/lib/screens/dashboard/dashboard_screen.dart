@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/models/ipo_model.dart';
 import '../../providers/pan_provider.dart';
+import '../../providers/account_session_provider.dart';
 import '../../providers/ipo_provider.dart';
 import '../../providers/refresh_job_provider.dart';
 
@@ -66,6 +67,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       // 1. Fetch cached IPO data and previously stored allotment results immediately
       ref.read(panProvider.notifier).fetchSavedPan();
       ref.read(ipoListProvider.notifier).fetchIposAndSummary();
@@ -529,6 +531,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> with WidgetsB
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(accountSessionProvider, (previous, next) {
+      if (next.userId == null) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(panProvider.notifier).fetchSavedPan();
+        ref.read(ipoListProvider.notifier).fetchIposAndSummary();
+        ref.read(refreshJobProvider.notifier).triggerAppOpenRefresh();
+      });
+    });
+
     final ipoState = ref.watch(ipoListProvider);
     final refreshState = ref.watch(refreshJobProvider);
     final panState = ref.watch(panProvider);
